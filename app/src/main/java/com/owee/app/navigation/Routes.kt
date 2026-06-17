@@ -17,4 +17,8 @@ sealed class Routes(val route: String) {
     data object Groups : Routes("groups")
     data object CreateGroup : Routes("create_group")
     data object GroupDetails : Routes("group_details")
+
+    // Expenses (nested inside GroupsGraph)
+    data object CreateExpense : Routes("create_expense")
+    data object ExpenseDetails : Routes("expense_details")
 }

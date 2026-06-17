@@ -23,7 +23,9 @@ fun BottomBar(navController: NavHostController) {
         Routes.Login.route,
         Routes.ProfileSetup.route,
         Routes.CreateGroup.route,
-        Routes.GroupDetails.route
+        Routes.GroupDetails.route,
+        Routes.CreateExpense.route,
+        Routes.ExpenseDetails.route
     )
 
     if (currentRoute in hiddenRoutes) return

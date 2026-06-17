@@ -8,6 +8,7 @@ import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import com.owee.app.data.repository.FriendRepository
 import com.owee.app.viewmodel.AuthViewModel
+import com.owee.app.viewmodel.ExpensesViewModel
 import com.owee.app.viewmodel.FriendsViewModel
 import com.owee.app.viewmodel.GroupsViewModel
 
@@ -24,6 +25,7 @@ fun RootNavGraph(
     val groupsViewModel: GroupsViewModel = viewModel {
         GroupsViewModel(friendRepository = friendRepository)
     }
+    val expensesViewModel: ExpensesViewModel = viewModel()
 
     NavHost(
         navController = navController,
@@ -31,6 +33,6 @@ fun RootNavGraph(
         modifier = modifier
     ) {
         loginNavGraph(navController, authViewModel)
-        mainNavGraph(navController, authViewModel, friendsViewModel, groupsViewModel)
+        mainNavGraph(navController, authViewModel, friendsViewModel, groupsViewModel, expensesViewModel)
     }
 }
