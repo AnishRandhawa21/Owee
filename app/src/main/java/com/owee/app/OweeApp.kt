@@ -9,6 +9,11 @@ import coil.decode.ImageDecoderDecoder
 
 class OweeApp : Application(), ImageLoaderFactory {
 
+    override fun onCreate() {
+        super.onCreate()
+        instance = this
+    }
+
     override fun newImageLoader(): ImageLoader {
         return ImageLoader.Builder(this)
             .components {
@@ -19,5 +24,10 @@ class OweeApp : Application(), ImageLoaderFactory {
                 }
             }
             .build()
+    }
+
+    companion object {
+        lateinit var instance: OweeApp
+            private set
     }
 }

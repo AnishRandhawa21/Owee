@@ -1,5 +1,7 @@
 package com.owee.app.data.repository
 
+import com.owee.app.OweeApp
+import com.owee.app.data.local.FriendCacheManager
 import com.owee.app.data.remote.SupabaseProvider
 import com.owee.app.data.remote.model.Friend
 import com.owee.app.data.remote.model.FriendRequest
@@ -8,6 +10,13 @@ import com.owee.app.data.remote.model.User
 import io.github.jan.supabase.postgrest.from
 
 class FriendRepository {
+
+    private val cache = FriendCacheManager(OweeApp.instance)
+    private val userCache = mutableMapOf<String, User>()
+
+    fun getCachedFriends(): List<User> = cache.getFriends()
+    fun getCachedSentRequests(): List<User> = cache.getSentRequests()
+    fun getCachedSentRequestIds(): Set<String> = cache.getSentRequestIds()
 
     suspend fun searchUsers(query: String): List<User> {
         return try {
@@ -27,7 +36,8 @@ class FriendRepository {
 
     suspend fun sendFriendRequest(
         senderId: String,
-        receiverId: String
+        receiverId: String,
+        receiverUser: User // Pass the user profile to cache it
     ): Boolean {
         return try {
             val request = FriendRequest(
@@ -39,6 +49,14 @@ class FriendRepository {
             SupabaseProvider.client
                 .from("friend_requests")
                 .insert(request)
+            
+            // Persist to local cache immediately
+            val currentSent = cache.getSentRequests().toMutableList()
+            if (currentSent.none { it.id == receiverUser.id }) {
+                currentSent.add(receiverUser)
+                cache.saveSentRequests(currentSent)
+            }
+            
             true
         } catch (e: Exception) {
             false
@@ -49,7 +67,6 @@ class FriendRepository {
         currentUserId: String
     ): List<FriendRequestUi> {
         return try {
-            // 1. Fetch pending requests
             val requests = SupabaseProvider.client
                 .from("friend_requests")
                 .select {
@@ -62,7 +79,6 @@ class FriendRepository {
 
             if (requests.isEmpty()) return emptyList()
 
-            // 2. Fetch sender profiles
             val senderIds = requests.map { it.sender_id }
             val senders = SupabaseProvider.client
                 .from("users")
@@ -73,7 +89,6 @@ class FriendRepository {
                 }
                 .decodeList<User>()
 
-            // 3. Map to UI model
             requests.mapNotNull { request ->
                 val sender = senders.find { it.id == request.sender_id }
                 if (sender != null) {
@@ -90,30 +105,12 @@ class FriendRepository {
         }
     }
 
-    suspend fun getSentRequestIds(currentUserId: String): Set<String> {
-        return try {
-            val requests = SupabaseProvider.client
-                .from("friend_requests")
-                .select {
-                    filter {
-                        eq("sender_id", currentUserId)
-                        eq("status", "pending")
-                    }
-                }
-                .decodeList<FriendRequest>()
-            requests.map { it.receiver_id }.toSet()
-        } catch (e: Exception) {
-            emptySet()
-        }
-    }
-
     suspend fun acceptFriendRequest(
         requestId: String,
         senderId: String,
         receiverId: String
     ): Boolean {
         return try {
-            // 1. Update request status
             SupabaseProvider.client
                 .from("friend_requests")
                 .update(
@@ -126,7 +123,6 @@ class FriendRepository {
                     }
                 }
 
-            // 2. Insert into friends table
             SupabaseProvider.client
                 .from("friends")
                 .insert(
@@ -162,8 +158,6 @@ class FriendRepository {
         }
     }
 
-    private val userCache = mutableMapOf<String, User>()
-
     suspend fun getUserById(userId: String): User? {
         userCache[userId]?.let { return it }
         return try {
@@ -189,7 +183,6 @@ class FriendRepository {
         currentUserId: String
     ): List<User> {
         return try {
-            // 1. Fetch friend relationships
             val friendsRaw = SupabaseProvider.client
                 .from("friends")
                 .select {
@@ -201,26 +194,18 @@ class FriendRepository {
                     }
                 }
             
-            // We'll use a generic map because we don't have a Friend model with user_one/user_two yet
             val friendsList = friendsRaw.decodeList<Friend>()
             
-            if (friendsList.isEmpty()) return emptyList()
-
-            // 2. Extract friend IDs (the one that isn't currentUserId)
-            val friendIds = friendsList.map { friend ->
-
-                if (friend.user_one == currentUserId) {
-                    friend.user_two
-                } else {
-                    friend.user_one
-                }
-
+            if (friendsList.isEmpty()) {
+                cache.saveFriends(emptyList())
+                return emptyList()
             }
 
-            if (friendIds.isEmpty()) return emptyList()
+            val friendIds = friendsList.map { friend ->
+                if (friend.user_one == currentUserId) friend.user_two else friend.user_one
+            }
 
-            // 3. Fetch friend profiles
-            SupabaseProvider.client
+            val friends = SupabaseProvider.client
                 .from("users")
                 .select {
                     filter {
@@ -228,8 +213,51 @@ class FriendRepository {
                     }
                 }
                 .decodeList<User>()
+            
+            cache.saveFriends(friends)
+            friends
         } catch (e: Exception) {
-            emptyList()
+            cache.getFriends()
         }
+    }
+
+    suspend fun getSentRequests(currentUserId: String): List<User> {
+        return try {
+            val requests = SupabaseProvider.client
+                .from("friend_requests")
+                .select {
+                    filter {
+                        eq("sender_id", currentUserId)
+                        eq("status", "pending")
+                    }
+                }
+                .decodeList<FriendRequest>()
+            
+            if (requests.isEmpty()) {
+                cache.saveSentRequests(emptyList())
+                return emptyList()
+            }
+
+            val receiverIds = requests.map { it.receiver_id }
+            val users = SupabaseProvider.client
+                .from("users")
+                .select {
+                    filter {
+                        isIn("id", receiverIds)
+                    }
+                }
+                .decodeList<User>()
+            
+            cache.saveSentRequests(users)
+            users
+        } catch (e: Exception) {
+            cache.getSentRequests()
+        }
+    }
+
+    fun removeSentRequest(userId: String) {
+        val current = cache.getSentRequests().toMutableList()
+        current.removeAll { it.id == userId }
+        cache.saveSentRequests(current)
     }
 }

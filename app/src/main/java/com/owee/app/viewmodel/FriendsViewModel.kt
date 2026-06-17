@@ -22,65 +22,86 @@ class FriendsViewModel(
     private val realtimeManager: FriendRealtimeManager = FriendRealtimeManager()
 ) : ViewModel() {
 
-
-    private var isInitialized = false
     private var currentUserId: String? = null
 
     private val _uiState = MutableStateFlow(FriendsUiState())
-    val uiState: StateFlow<FriendsUiState> =
-        _uiState.asStateFlow()
+    val uiState: StateFlow<FriendsUiState> = _uiState.asStateFlow()
+
+    init {
+        // Load from local cache immediately on startup
+        _uiState.update { it.copy(
+            friends = repository.getCachedFriends(),
+            sentRequests = repository.getCachedSentRequests(),
+            sentRequestIds = repository.getCachedSentRequestIds()
+        ) }
+    }
 
     fun searchUsers(query: String) {
-        _uiState.value = _uiState.value.copy(searchQuery = query)
+        _uiState.update { it.copy(searchQuery = query) }
 
         if (query.isBlank()) {
-            _uiState.value = _uiState.value.copy(searchResults = emptyList())
+            _uiState.update { it.copy(searchResults = emptyList()) }
             return
         }
 
         viewModelScope.launch {
-            _uiState.value = _uiState.value.copy(isLoading = true)
+            _uiState.update { it.copy(isLoading = true) }
             val results = repository.searchUsers(query)
-            _uiState.value = _uiState.value.copy(
+            _uiState.update { it.copy(
                 searchResults = results,
                 isLoading = false
-            )
+            ) }
         }
     }
 
     fun loadPendingRequests(currentUserId: String?) {
-        if (currentUserId == null) return
+        if (currentUserId.isNullOrBlank()) return
         viewModelScope.launch {
             val requests = repository.getPendingRequests(currentUserId)
-            _uiState.value = _uiState.value.copy(friendRequests = requests)
+            _uiState.update { it.copy(friendRequests = requests) }
         }
     }
 
     fun loadFriends(currentUserId: String?) {
-        if (currentUserId == null) return
+        if (currentUserId.isNullOrBlank()) return
         viewModelScope.launch {
             val friends = repository.getFriends(currentUserId)
-            _uiState.value = _uiState.value.copy(friends = friends)
+            _uiState.update { it.copy(friends = friends) }
         }
     }
 
-    fun sendFriendRequest(senderId: String?, receiverId: String?) {
-        if (senderId == null || receiverId == null) return
+    fun sendFriendRequest(senderId: String?, receiverUser: User) {
+        val receiverId = receiverUser.id
+        if (senderId.isNullOrBlank() || receiverId.isNullOrBlank()) return
+        
+        // Prevent duplicate clicks or adding if already exists
+        if (_uiState.value.sentRequestIds.contains(receiverId)) return
+
+        // Optimistic update with deduplication
+        _uiState.update { state ->
+            state.copy(
+                sentRequestIds = state.sentRequestIds + receiverId,
+                sentRequests = (state.sentRequests + receiverUser).distinctBy { it.id }
+            )
+        }
+
         viewModelScope.launch {
-            val success = repository.sendFriendRequest(senderId, receiverId)
+            val success = repository.sendFriendRequest(senderId, receiverId, receiverUser)
             if (success) {
-                _uiState.value = _uiState.value.copy(
-                    message = "Friend request sent!",
-                    sentRequestIds = _uiState.value.sentRequestIds + receiverId
-                )
+                _uiState.update { it.copy(message = "Friend request sent!") }
             } else {
-                _uiState.value = _uiState.value.copy(error = "Failed to send request")
+                // Rollback if failed
+                _uiState.update { it.copy(
+                    error = "Failed to send request",
+                    sentRequestIds = it.sentRequestIds - receiverId,
+                    sentRequests = it.sentRequests.filter { it.id != receiverId }
+                ) }
             }
         }
     }
 
     fun acceptRequest(request: FriendRequestUi, currentUserId: String?) {
-        if (currentUserId == null) return
+        if (currentUserId.isNullOrBlank()) return
         viewModelScope.launch {
             val success = repository.acceptFriendRequest(
                 requestId = request.requestId,
@@ -94,46 +115,42 @@ class FriendsViewModel(
                         friendRequests = state.friendRequests.filter { it.requestId != request.requestId }
                     )
                 }
-                // No need to call loadFriends() because Realtime handles it
             } else {
-                _uiState.value = _uiState.value.copy(error = "Failed to accept request")
+                _uiState.update { it.copy(error = "Failed to accept request") }
             }
         }
     }
 
     fun rejectRequest(requestId: String, currentUserId: String?) {
-        if (currentUserId == null) return
+        if (currentUserId.isNullOrBlank()) return
         viewModelScope.launch {
             val success = repository.rejectFriendRequest(requestId)
             if (success) {
-                _uiState.value = _uiState.value.copy(message = "Request rejected")
-                _uiState.value = _uiState.value.copy(
-                    friendRequests =
-                        _uiState.value.friendRequests.filter {
-                            it.requestId != requestId
-                        }
-                )
+                _uiState.update { state ->
+                    state.copy(
+                        message = "Request rejected",
+                        friendRequests = state.friendRequests.filter { it.requestId != requestId }
+                    )
+                }
             } else {
-                _uiState.value = _uiState.value.copy(error = "Failed to reject request")
+                _uiState.update { it.copy(error = "Failed to reject request") }
             }
         }
     }
 
     fun clearMessage() {
-        _uiState.value = _uiState.value.copy(message = null, error = null)
+        _uiState.update { it.copy(message = null, error = null) }
     }
 
     fun initialize(userId: String?) {
-
-        if (userId == null) return
-
-        if (isInitialized && currentUserId == userId) {
-            return
-        }
+        if (userId.isNullOrBlank()) return
+        
+        // If already initialized for this user, don't re-run full init
+        if (currentUserId == userId) return
 
         currentUserId = userId
-        isInitialized = true
 
+        // Background sync
         loadPendingRequests(userId)
         loadSentRequests(userId)
         loadFriends(userId)
@@ -142,8 +159,11 @@ class FriendsViewModel(
 
     private fun loadSentRequests(userId: String) {
         viewModelScope.launch {
-            val sentIds = repository.getSentRequestIds(userId)
-            _uiState.update { it.copy(sentRequestIds = sentIds) }
+            val sent = repository.getSentRequests(userId)
+            _uiState.update { it.copy(
+                sentRequests = sent,
+                sentRequestIds = sent.mapNotNull { it.id }.toSet()
+            ) }
         }
     }
 
@@ -152,32 +172,25 @@ class FriendsViewModel(
             try {
                 realtimeManager.connect()
 
-                // 1. Register filters BEFORE subscribing
                 val requestFlow = realtimeManager.watchFriendRequests()
                 val friendsFlow = realtimeManager.watchFriends()
 
-                // 2. Subscribe to the channels
                 realtimeManager.subscribe()
 
-                // 3. Start collecting updates (only if registration was successful)
                 requestFlow?.let { flow ->
                     launch {
-                        flow.collect { action ->
-                            handleFriendRequestAction(action, userId)
-                        }
+                        flow.collect { action -> handleFriendRequestAction(action, userId) }
                     }
                 }
 
                 friendsFlow?.let { flow ->
                     launch {
-                        flow.collect { action ->
-                            handleFriendAction(action, userId)
-                        }
+                        flow.collect { action -> handleFriendAction(action, userId) }
                     }
                 }
 
             } catch (e: Exception) {
-                _uiState.update { it.copy(error = "Realtime connection failed") }
+                // Silently ignore or log - don't crash the UI state
             }
         }
     }
@@ -186,7 +199,6 @@ class FriendsViewModel(
         when (action) {
             is PostgresAction.Insert -> {
                 val request = action.decodeRecord<FriendRequest>()
-                // 1. Someone sent ME a request
                 if (request.receiver_id == userId && request.status == "pending") {
                     val sender = repository.getUserById(request.sender_id)
                     if (sender != null) {
@@ -198,27 +210,36 @@ class FriendsViewModel(
                         )
                         _uiState.update { state ->
                             if (state.friendRequests.any { it.requestId == uiRequest.requestId }) state
-                            else state.copy(friendRequests = state.friendRequests + uiRequest)
+                            else state.copy(friendRequests = (state.friendRequests + uiRequest).distinctBy { it.requestId })
                         }
                     }
                 }
-                // 2. I sent someone else a request (Sync other devices)
                 if (request.sender_id == userId && request.status == "pending") {
-                    _uiState.update { it.copy(sentRequestIds = it.sentRequestIds + request.receiver_id) }
+                    val receiver = repository.getUserById(request.receiver_id)
+                    if (receiver != null) {
+                        _uiState.update { state ->
+                             state.copy(
+                                sentRequestIds = state.sentRequestIds + request.receiver_id,
+                                sentRequests = (state.sentRequests + receiver).distinctBy { it.id }
+                            )
+                        }
+                    }
                 }
             }
             is PostgresAction.Update -> {
                 val request = action.decodeRecord<FriendRequest>()
-                // 1. Incoming request was processed
                 if (request.receiver_id == userId && request.status != "pending") {
                     _uiState.update { state ->
                         state.copy(friendRequests = state.friendRequests.filter { it.requestId != request.id })
                     }
                 }
-                // 2. Outgoing request was Accepted/Rejected by the other user
                 if (request.sender_id == userId && request.status != "pending") {
                     _uiState.update { state ->
-                        state.copy(sentRequestIds = state.sentRequestIds - request.receiver_id)
+                        repository.removeSentRequest(request.receiver_id)
+                        state.copy(
+                            sentRequestIds = state.sentRequestIds - request.receiver_id,
+                            sentRequests = state.sentRequests.filter { it.id != request.receiver_id }
+                        )
                     }
                 }
             }
@@ -236,22 +257,17 @@ class FriendsViewModel(
                     if (friendProfile != null) {
                         _uiState.update { state ->
                             if (state.friends.any { it.id == friendProfile.id }) state
-                            else state.copy(friends = state.friends + friendProfile)
+                            else {
+                                val updatedFriends = (state.friends + friendProfile).distinctBy { it.id }
+                                repository.getFriends(userId) // Update cache in background
+                                state.copy(friends = updatedFriends)
+                            }
                         }
                     }
                 }
             }
             is PostgresAction.Delete -> {
-                // For Delete, the record is usually empty in older Supabase versions, 
-                // but 3.2.5 might provide the old_record if configured.
-                // However, the simplest is to reload friends or use the id if available.
-                val oldRecord = action.oldRecord
-                val deletedId = oldRecord["id"]?.jsonPrimitive?.content
-                if (deletedId != null) {
-                    // We don't know which user was the friend from just the record ID easily without the full record,
-                    // but we can just reload the list for consistency on delete.
-                    loadFriends(userId)
-                }
+                loadFriends(userId)
             }
             else -> {}
         }
@@ -259,8 +275,6 @@ class FriendsViewModel(
 
     override fun onCleared() {
         super.onCleared()
-        viewModelScope.launch {
-            realtimeManager.disconnect()
-        }
+        viewModelScope.launch { realtimeManager.disconnect() }
     }
 }

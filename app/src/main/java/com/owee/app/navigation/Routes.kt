@@ -10,6 +10,11 @@ sealed class Routes(val route: String) {
     // Main Bottom Navigation
     data object Home : Routes("home")
     data object People : Routes("people")
-    data object Groups : Routes("groups")
     data object Profile : Routes("profile")
+
+    // Groups Graph
+    data object GroupsGraph : Routes("groups_graph")
+    data object Groups : Routes("groups")
+    data object CreateGroup : Routes("create_group")
+    data object GroupDetails : Routes("group_details")
 }
