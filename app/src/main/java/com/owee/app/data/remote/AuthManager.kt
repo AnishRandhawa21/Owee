@@ -66,16 +66,10 @@ class AuthManager(
         )
     }
 
-    /**
-     * Get the current authenticated Supabase user ID.
-     */
     fun getSupabaseUserId(): String? {
         return SupabaseProvider.client.auth.currentUserOrNull()?.id
     }
 
-    /**
-     * Signs out the user from Supabase.
-     */
     suspend fun signOut() {
         SupabaseProvider.client.auth.signOut()
     }

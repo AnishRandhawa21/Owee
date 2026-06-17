@@ -13,7 +13,7 @@ import kotlinx.coroutines.launch
 sealed class ProfileSetupState {
     object Idle : ProfileSetupState()
     object Loading : ProfileSetupState()
-    object Success : ProfileSetupState()
+    data class Success(val user: User) : ProfileSetupState()
     object UsernameAlreadyExists : ProfileSetupState()
     data class Error(val message: String) : ProfileSetupState()
 }
@@ -57,11 +57,13 @@ class ProfileSetupViewModel(
                     photo_url = if (photoUrl.isNullOrEmpty()) null else photoUrl
                 )
 
-                userRepository.insertUser(newUser)
+                val createdUser = userRepository.insertUser(newUser)
                 
-                // Cache user data in the shared AuthViewModel locally after successful insert
-                // This prevents re-fetching from DB
-                _uiState.value = ProfileSetupState.Success
+                if (createdUser != null) {
+                    _uiState.value = ProfileSetupState.Success(createdUser)
+                } else {
+                    _uiState.value = ProfileSetupState.Error("Failed to create profile")
+                }
 
             } catch (e: Exception) {
                 _uiState.value = ProfileSetupState.Error(e.message ?: "An unexpected error occurred")

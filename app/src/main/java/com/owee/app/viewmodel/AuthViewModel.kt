@@ -3,6 +3,7 @@ package com.owee.app.viewmodel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.owee.app.data.remote.SupabaseProvider
+import com.owee.app.data.remote.model.AuthUser
 import com.owee.app.data.repository.UserRepository
 import io.github.jan.supabase.auth.auth
 import io.github.jan.supabase.auth.status.SessionStatus
@@ -11,15 +12,15 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.jsonPrimitive
 
-data class AuthUser(
-    val id: String = "",
-    val token: String = "",
-    val email: String = "",
-    val photoUrl: String = "",
-    val name: String = "",
-    val username: String = "",
-    val joinedDate: String = ""
-)
+//data class AuthUser(
+//    val id: String = "",
+//    val token: String = "",
+//    val email: String = "",
+//    val photoUrl: String = "",
+//    val name: String = "",
+//    val username: String = "",
+//    val joinedDate: String = ""
+//)
 
 sealed class AuthState {
     object Idle : AuthState()
@@ -64,7 +65,7 @@ class AuthViewModel(
 
     private suspend fun loadUserProfile(userId: String) {
         // Only fetch if we don't already have the profile or it's a different user
-        if (_user.value.id == userId && _user.value.name.isNotEmpty()) {
+        if (_user.value.authId == userId && !_user.value.name.isNullOrEmpty()) {
             _authState.value = AuthState.Authenticated
             return
         }
@@ -78,7 +79,8 @@ class AuthViewModel(
 
         if (profile != null) {
             _user.value = AuthUser(
-                id = userId,
+                dbId = profile.id ?: "",
+                authId = userId,
                 email = currentUser?.email ?: "",
                 photoUrl = profile.photo_url ?: metadataPhoto ?: "",
                 name = profile.name,
@@ -88,7 +90,7 @@ class AuthViewModel(
             _authState.value = AuthState.Authenticated
         } else {
             _user.value = _user.value.copy(
-                id = userId,
+                authId = userId,
                 email = currentUser?.email ?: "",
                 photoUrl = metadataPhoto ?: _user.value.photoUrl // Keep existing or use metadata
             )
@@ -97,27 +99,29 @@ class AuthViewModel(
     }
 
     fun updateUser(
-        id: String,
-        token: String,
-        email: String,
-        photoUrl: String,
-        name: String = "",
-        username: String = ""
+        dbId: String? = null,
+        authId: String,
+        token: String? = null,
+        email: String? = null,
+        photoUrl: String? = null,
+        name: String? = null,
+        username: String? = null
     ) {
         _user.value = _user.value.copy(
-            id = id,
-            token = token,
-            email = email,
-            photoUrl = if (photoUrl.isNotEmpty()) photoUrl else _user.value.photoUrl,
-            name = if (name.isNotEmpty()) name else _user.value.name,
-            username = if (username.isNotEmpty()) username else _user.value.username
+            dbId = dbId ?: _user.value.dbId,
+            authId = authId,
+            token = token ?: _user.value.token,
+            email = email ?: _user.value.email,
+            photoUrl = photoUrl ?: _user.value.photoUrl,
+            name = name ?: _user.value.name,
+            username = username ?: _user.value.username
         )
 
-        if (_user.value.name.isNotEmpty() && _user.value.username.isNotEmpty()) {
+        if (!_user.value.name.isNullOrEmpty() && !_user.value.username.isNullOrEmpty()) {
             _authState.value = AuthState.Authenticated
         } else {
             viewModelScope.launch {
-                loadUserProfile(id)
+                loadUserProfile(authId)
             }
         }
     }

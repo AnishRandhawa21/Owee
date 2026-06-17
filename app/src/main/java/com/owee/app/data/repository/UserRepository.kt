@@ -25,12 +25,15 @@ class UserRepository {
     }
 
     /**
-     * Inserts a new user record into the public.users table.
+     * Inserts a new user record into the public.users table and returns the created user.
      */
-    suspend fun insertUser(user: User) {
-        SupabaseProvider.client
+    suspend fun insertUser(user: User): User? {
+        val response = SupabaseProvider.client
             .from("users")
-            .insert(user)
+            .insert(user) {
+                select()
+            }
+        return response.decodeSingleOrNull<User>()
     }
 
     /**

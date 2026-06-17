@@ -34,7 +34,7 @@ fun ProfileScreen(
     ) {
         // Profile Picture
         AsyncImage(
-            model = user.photoUrl.ifEmpty { null },
+            model = if (user.photoUrl.isNullOrEmpty()) null else user.photoUrl,
             contentDescription = "Profile Picture",
             modifier = Modifier
                 .size(120.dp)
@@ -48,13 +48,13 @@ fun ProfileScreen(
 
         // Name
         Text(
-            text = user.name.ifEmpty { "No Name" },
+            text = if (user.name.isNullOrEmpty()) "No Name" else user.name!!,
             style = MaterialTheme.typography.headlineMedium
         )
 
         // @username
         Text(
-            text = "@${user.username.ifEmpty { "username" }}",
+            text = "@${if (user.username.isNullOrEmpty()) "username" else user.username!!}",
             style = MaterialTheme.typography.bodyLarge,
             color = MaterialTheme.colorScheme.primary
         )
@@ -63,16 +63,17 @@ fun ProfileScreen(
 
         // Email
         Text(
-            text = user.email,
+            text = user.email ?: "No Email",
             style = MaterialTheme.typography.bodyMedium
         )
 
         // Joined Date
-        if (user.joinedDate.isNotEmpty()) {
+        val joinedDate = user.joinedDate
+        if (!joinedDate.isNullOrEmpty()) {
             val date = try {
-                user.joinedDate.substringBefore("T")
+                joinedDate.substringBefore("T")
             } catch (e: Exception) {
-                user.joinedDate
+                joinedDate
             }
             Text(
                 text = "Joined: $date",

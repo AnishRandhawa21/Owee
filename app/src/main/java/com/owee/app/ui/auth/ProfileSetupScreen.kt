@@ -27,11 +27,13 @@ fun ProfileSetupScreen(
     val authUserState by authViewModel.user.collectAsState()
 
     LaunchedEffect(uiState) {
-        if (uiState is ProfileSetupState.Success) {
+        val state = uiState
+        if (state is ProfileSetupState.Success) {
             val authId = SupabaseProvider.client.auth.currentUserOrNull()?.id
             if (authId != null) {
                 authViewModel.updateUser(
-                    id = authId,
+                    dbId = state.user.id ?: "",
+                    authId = authId,
                     token = "",
                     email = authUserState.email,
                     photoUrl = authUserState.photoUrl,

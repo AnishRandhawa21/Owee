@@ -54,7 +54,7 @@ fun LoginScreen(
                         val user = AuthManager(context).signIn()
                         if (user != null) {
                             authViewModel.updateUser(
-                                id = user.id,
+                                authId = user.id,
                                 token = user.token,
                                 email = user.email,
                                 photoUrl = user.photoUrl ?: ""

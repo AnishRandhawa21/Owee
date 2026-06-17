@@ -5,6 +5,8 @@ import androidx.compose.ui.Modifier
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import com.owee.app.viewmodel.AuthViewModel
+import com.owee.app.viewmodel.FriendsViewModel
+import androidx.lifecycle.viewmodel.compose.viewModel
 
 @Composable
 fun RootNavGraph(
@@ -12,6 +14,7 @@ fun RootNavGraph(
     authViewModel: AuthViewModel,
     modifier: Modifier = Modifier
 ) {
+    val friendsViewModel: FriendsViewModel = viewModel()
 
     NavHost(
         navController = navController,
@@ -20,7 +23,7 @@ fun RootNavGraph(
     ) {
 
         loginNavGraph(navController, authViewModel)
-        mainNavGraph(navController, authViewModel)
+        mainNavGraph(navController, authViewModel, friendsViewModel)
 
     }
 }

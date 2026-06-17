@@ -1,9 +1,14 @@
 package com.owee.app.ui.components
 
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Groups
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Person
-import androidx.compose.material3.*
+import androidx.compose.material.icons.filled.People
+import androidx.compose.material3.Icon
+import androidx.compose.material3.NavigationBar
+import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.currentBackStackEntryAsState
@@ -20,47 +25,73 @@ fun BottomBar(
     val currentRoute =
         navBackStackEntry.value?.destination?.route
 
-    // Hide BottomBar on Auth screens
+    // Hide BottomBar on Auth Screens
     val authRoutes = listOf(
+        Routes.AuthCheck.route,
         Routes.Login.route,
-        Routes.ProfileSetup.route,
-        Routes.AuthCheck.route
+        Routes.ProfileSetup.route
     )
 
     if (currentRoute in authRoutes) return
 
+    val items = listOf(
+        BottomNavItem(
+            route = Routes.Home.route,
+            title = "Home",
+            icon = Icons.Default.Home
+        ),
+        BottomNavItem(
+            route = Routes.People.route,
+            title = "People",
+            icon = Icons.Default.People
+        ),
+        BottomNavItem(
+            route = Routes.Groups.route,
+            title = "Groups",
+            icon = Icons.Default.Groups
+        ),
+        BottomNavItem(
+            route = Routes.Profile.route,
+            title = "Profile",
+            icon = Icons.Default.Person
+        )
+    )
+
     NavigationBar {
 
-        NavigationBarItem(
-            selected = currentRoute == Routes.Home.route,
-            onClick = {
-                navController.navigate(Routes.Home.route)
-            },
-            icon = {
-                Icon(
-                    imageVector = Icons.Default.Home,
-                    contentDescription = null
-                )
-            },
-            label = {
-                Text("Home")
-            }
-        )
+        items.forEach { item ->
 
-        NavigationBarItem(
-            selected = currentRoute == Routes.Profile.route,
-            onClick = {
-                navController.navigate(Routes.Profile.route)
-            },
-            icon = {
-                Icon(
-                    imageVector = Icons.Default.Person,
-                    contentDescription = null
-                )
-            },
-            label = {
-                Text("Profile")
-            }
-        )
+            NavigationBarItem(
+                selected = currentRoute == item.route,
+
+                onClick = {
+
+                    navController.navigate(item.route) {
+
+                        // Avoid duplicate destinations
+                        launchSingleTop = true
+
+                        // Restore previous state
+                        restoreState = true
+
+                        // Pop to root of bottom navigation
+                        popUpTo(navController.graph.startDestinationId) {
+                            saveState = true
+                        }
+                    }
+                },
+
+                icon = {
+                    Icon(
+                        imageVector = item.icon,
+                        contentDescription = item.title
+                    )
+                },
+
+                label = {
+                    Text(item.title)
+                }
+            )
+        }
     }
 }
