@@ -16,15 +16,15 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import kotlinx.serialization.json.jsonPrimitive
 
 class FriendsViewModel(
     private val repository: FriendRepository = FriendRepository(),
-    private val realtimeManager: FriendRealtimeManager = FriendRealtimeManager()
+    private val realtimeManager: FriendRealtimeManager = FriendRealtimeManager(),
 ) : ViewModel() {
 
     private var currentUserId: String? = null
     private var searchJob: Job? = null
+    private var realtimeJob: Job? = null
 
     private val _uiState = MutableStateFlow(FriendsUiState())
     val uiState: StateFlow<FriendsUiState> = _uiState.asStateFlow()
@@ -36,6 +36,13 @@ class FriendsViewModel(
             sentRequests = repository.getCachedSentRequests(),
             sentRequestIds = repository.getCachedSentRequestIds()
         ) }
+    }
+
+    fun refresh() {
+        val uid = currentUserId ?: return
+        loadFriends(uid)
+        loadPendingRequests(uid)
+        loadSentRequests(uid)
     }
 
     fun searchUsers(query: String) {
@@ -141,10 +148,6 @@ class FriendsViewModel(
         }
     }
 
-    fun clearMessage() {
-        _uiState.update { it.copy(message = null, error = null) }
-    }
-
     fun initialize(userId: String?) {
         if (userId.isNullOrBlank()) return
         
@@ -163,15 +166,17 @@ class FriendsViewModel(
     private fun loadSentRequests(userId: String) {
         viewModelScope.launch {
             val sent = repository.getSentRequests(userId)
+            val sentIds = sent.asSequence().mapNotNull { it.id }.toSet()
             _uiState.update { it.copy(
                 sentRequests = sent,
-                sentRequestIds = sent.mapNotNull { it.id }.toSet()
+                sentRequestIds = sentIds
             ) }
         }
     }
 
     private fun startRealtimeSubscriptions(userId: String) {
-        viewModelScope.launch {
+        realtimeJob?.cancel()
+        realtimeJob = viewModelScope.launch {
             try {
                 realtimeManager.connect()
 
@@ -180,19 +185,15 @@ class FriendsViewModel(
 
                 realtimeManager.subscribe()
 
-                requestFlow?.let { flow ->
-                    launch {
-                        flow.collect { action -> handleFriendRequestAction(action, userId) }
-                    }
+                launch {
+                    requestFlow?.collect { action -> handleFriendRequestAction(action, userId) }
                 }
 
-                friendsFlow?.let { flow ->
-                    launch {
-                        flow.collect { action -> handleFriendAction(action, userId) }
-                    }
+                launch {
+                    friendsFlow?.collect { action -> handleFriendAction(action, userId) }
                 }
 
-            } catch (e: Exception) {
+            } catch (_: Exception) {
                 // Silently ignore or log - don't crash the UI state
             }
         }
@@ -202,14 +203,15 @@ class FriendsViewModel(
         when (action) {
             is PostgresAction.Insert -> {
                 val request = action.decodeRecord<FriendRequest>()
-                if (request.receiver_id == userId && request.status == "pending") {
+                if ((request.receiver_id == userId) && (request.status == "pending")) {
                     val sender = repository.getUserById(request.sender_id)
                     if (sender != null) {
                         val uiRequest = FriendRequestUi(
                             requestId = request.id ?: "",
                             senderId = sender.id ?: "",
                             senderName = sender.name,
-                            senderUsername = sender.username
+                            senderUsername = sender.username,
+                            senderPhotoUrl = sender.photo_url
                         )
                         _uiState.update { state ->
                             if (state.friendRequests.any { it.requestId == uiRequest.requestId }) state

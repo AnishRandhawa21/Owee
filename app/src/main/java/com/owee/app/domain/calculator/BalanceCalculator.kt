@@ -22,7 +22,8 @@ object BalanceCalculator {
             user.id?.let { balancesMap[it] = 0.0 }
         }
 
-        expenses.forEach { ewp ->
+        // Only calculate balances for expenses belonging to THIS group
+        expenses.filter { it.expense.group_id == groupId }.forEach { ewp ->
             totalExpenses += ewp.expense.amount
             
             // Payer gets credited the full amount
@@ -66,7 +67,7 @@ object BalanceCalculator {
             if (myBalance > 0) {
                 totalOwed += myBalance
             } else if (myBalance < 0) {
-                totalOwe += myBalance // totalOwe will be negative
+                totalOwe += kotlin.math.abs(myBalance)
             }
         }
 

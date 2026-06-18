@@ -2,6 +2,7 @@ package com.owee.app.ui.screens.groups
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -10,20 +11,25 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material3.*
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import coil.compose.AsyncImage
 import com.owee.app.data.remote.model.ExpenseWithParticipants
-import com.owee.app.data.remote.model.User
-import com.owee.app.domain.model.UserBalance
 import com.owee.app.viewmodel.BalanceViewModel
 import com.owee.app.viewmodel.ExpensesViewModel
 import com.owee.app.viewmodel.GroupsViewModel
+import java.util.*
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun GroupDetailsScreen(
     currentUserId: String,
@@ -37,7 +43,6 @@ fun GroupDetailsScreen(
 ) {
     val groupState by groupsViewModel.uiState.collectAsState()
     val expenseState by expensesViewModel.uiState.collectAsState()
-    val balanceState by balanceViewModel.uiState.collectAsState()
 
     val group = groupState.selectedGroup
 
@@ -46,10 +51,7 @@ fun GroupDetailsScreen(
         return
     }
 
-    val groupBalance = balanceState.overallBalance?.groupBalances?.find { it.groupId == group.group.id }
-
-    // Initialize expenses and balances when screen opens
-    LaunchedEffect(group.group.id) {
+    LaunchedEffect(group) {
         group.group.id?.let { groupId ->
             expensesViewModel.initialize(
                 groupId = groupId,
@@ -60,408 +62,325 @@ fun GroupDetailsScreen(
         }
     }
 
-    LazyColumn(
-        modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
+    if (expenseState.error != null) {
+        AlertDialog(
+            onDismissRequest = { expensesViewModel.clearMessage() },
+            title = { Text("Error") },
+            text = { Text(expenseState.error ?: "An unknown error occurred") },
+            confirmButton = { TextButton(onClick = { expensesViewModel.clearMessage() }) { Text("OK") } }
+        )
+    }
+
+    PullToRefreshBox(
+        isRefreshing = expenseState.isLoading,
+        onRefresh = { 
+            expensesViewModel.refresh()
+            balanceViewModel.refresh()
+        },
+        modifier = Modifier.fillMaxSize()
     ) {
-
-        // ─── Group Summary ────────────────────────────────────────────────
-        item {
-            GroupSummaryCard(
-                groupName = group.group.name,
-                memberCount = group.memberCount,
-                totalExpenses = groupBalance?.totalExpenses ?: 0.0
-            )
-        }
-
-        // ─── Balances Section ─────────────────────────────────────────────
-        item {
-            Text(
-                text = "Balances",
-                style = MaterialTheme.typography.titleSmall,
-                fontWeight = FontWeight.SemiBold,
-                modifier = Modifier.padding(vertical = 4.dp)
-            )
-        }
-
-        if (expenseState.isLoading) {
+        LazyColumn(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(MaterialTheme.colorScheme.background)
+                .imePadding(),
+            contentPadding = PaddingValues(bottom = 24.dp)
+        ) {
+            // Group Header Summary
             item {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(24.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    CircularProgressIndicator(modifier = Modifier.size(24.dp))
+                val totalExpenses = expenseState.expenses.sumOf { it.expense.amount }
+                GroupHeaderCard(
+                    groupName = group.group.name,
+                    memberCount = group.memberCount,
+                    totalExpenses = totalExpenses
+                )
+            }
+
+            // Tabs / Section Headers
+            item {
+                SectionHeader("Members & Balances")
+            }
+
+            if (expenseState.isLoading && expenseState.memberBalances.isEmpty()) {
+                item { LoadingState() }
+            } else if (expenseState.memberBalances.isEmpty()) {
+                item { BalancesEmptyState() }
+            } else {
+                items(expenseState.memberBalances, key = { "balance_${it.user.id}" }) { mb ->
+                    val isOwner = mb.user.id == group.group.created_by
+                    MemberBalanceItem(
+                        name = mb.user.name,
+                        photoUrl = mb.user.photo_url,
+                        amount = mb.netBalance,
+                        isCurrentUser = mb.user.id == currentUserId,
+                        isOwner = isOwner
+                    )
                 }
             }
-        } else if (groupBalance == null || groupBalance.balances.isEmpty()) {
-            item { BalancesEmptyState() }
-        } else {
-            items(groupBalance.balances, key = { "balance_${it.userId}" }) { balance ->
-                BalanceRow(
-                    balance = balance,
-                    isCurrentUser = balance.userId == currentUserId
-                )
+
+            item {
+                SectionHeader("Expenses")
+            }
+
+            if (!expenseState.isLoading && expenseState.expenses.isEmpty()) {
+                item { ExpensesEmptyState() }
+            } else {
+                items(
+                    expenseState.expenses,
+                    key = { "expense_${it.expense.id}" }
+                ) { ewp ->
+                    ExpenseListItem(
+                        ewp = ewp,
+                        currentUserId = currentUserId,
+                        onClick = {
+                            expensesViewModel.selectExpense(ewp)
+                            onNavigateToExpenseDetails()
+                        }
+                    )
+                }
             }
         }
-
-        // ─── Expenses Section ─────────────────────────────────────────────
-        item {
-            Spacer(Modifier.height(4.dp))
-            Text(
-                text = "Expenses",
-                style = MaterialTheme.typography.titleSmall,
-                fontWeight = FontWeight.SemiBold,
-                modifier = Modifier.padding(vertical = 4.dp)
-            )
-        }
-
-        if (!expenseState.isLoading && expenseState.expenses.isEmpty()) {
-            item { ExpensesEmptyState() }
-        } else {
-            items(
-                expenseState.expenses,
-                key = { "expense_${it.expense.id}" }
-            ) { expenseWithParticipants ->
-                ExpenseRow(
-                    expenseWithParticipants = expenseWithParticipants,
-                    currentUserId = currentUserId,
-                    onClick = {
-                        expensesViewModel.selectExpense(expenseWithParticipants)
-                        onNavigateToExpenseDetails()
-                    }
-                )
-            }
-        }
-
-        // ─── Members Section ──────────────────────────────────────────────
-        item {
-            Spacer(Modifier.height(4.dp))
-            Text(
-                text = "Members",
-                style = MaterialTheme.typography.titleSmall,
-                fontWeight = FontWeight.SemiBold,
-                modifier = Modifier.padding(vertical = 4.dp)
-            )
-        }
-
-        items(group.members, key = { "member_${it.id}" }) { member ->
-            val role = if (member.id == group.group.created_by) "owner" else "member"
-            MemberRow(user = member, role = role)
-        }
-
-        item { Spacer(Modifier.height(80.dp)) }
     }
 }
 
-// ─── Group Summary Card ───────────────────────────────────────────────────────
+@Composable
+private fun SectionHeader(title: String) {
+    Text(
+        text = title,
+        style = MaterialTheme.typography.titleMedium,
+        fontWeight = FontWeight.Bold,
+        modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp)
+    )
+}
 
 @Composable
-private fun GroupSummaryCard(groupName: String, memberCount: Int, totalExpenses: Double) {
+private fun GroupHeaderCard(groupName: String, memberCount: Int, totalExpenses: Double) {
+    val isDark = isSystemInDarkTheme()
     Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(16.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(16.dp),
+        shape = RoundedCornerShape(28.dp),
         colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.primaryContainer
-        )
+            containerColor = if (isDark) MaterialTheme.colorScheme.surfaceVariant else MaterialTheme.colorScheme.surface
+        ),
+        elevation = CardDefaults.cardElevation(defaultElevation = if (isDark) 0.dp else 2.dp)
     ) {
-        Column(modifier = Modifier.padding(20.dp)) {
+        Column(modifier = Modifier.padding(24.dp)) {
             Text(
-                text = groupName,
-                style = MaterialTheme.typography.headlineSmall,
+                text = groupName.uppercase(),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
                 fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onPrimaryContainer
+                letterSpacing = 1.sp
             )
-            Spacer(Modifier.height(4.dp))
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween
+            Spacer(Modifier.height(8.dp))
+            Text(
+                text = "₹${String.format(Locale.US, "%.2f", totalExpenses)}",
+                style = MaterialTheme.typography.headlineLarge,
+                fontWeight = FontWeight.ExtraBold,
+                color = MaterialTheme.colorScheme.primary
+            )
+            Spacer(Modifier.height(12.dp))
+            Surface(
+                color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f),
+                shape = RoundedCornerShape(12.dp)
             ) {
                 Text(
                     text = "$memberCount Members",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f)
-                )
-                Text(
-                    text = "Total: ₹${"%.2f".format(totalExpenses)}",
-                    style = MaterialTheme.typography.bodyMedium,
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                    style = MaterialTheme.typography.labelMedium,
                     fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onPrimaryContainer
+                    color = MaterialTheme.colorScheme.primary
                 )
             }
         }
     }
 }
 
-// ─── Balance Row ──────────────────────────────────────────────────────────────
-
 @Composable
-private fun BalanceRow(balance: UserBalance, isCurrentUser: Boolean) {
-    val isPositive = balance.amount > 0.01
-    val isNegative = balance.amount < -0.01
-    val isSettled = !isPositive && !isNegative
-
+private fun MemberBalanceItem(
+    name: String, 
+    photoUrl: String?, 
+    amount: Double, 
+    isCurrentUser: Boolean,
+    isOwner: Boolean
+) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(12.dp))
-            .background(MaterialTheme.colorScheme.surfaceVariant)
-            .padding(horizontal = 14.dp, vertical = 12.dp),
+            .padding(horizontal = 20.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        // Avatar
-        Box(
+        AsyncImage(
+            model = photoUrl,
+            contentDescription = null,
             modifier = Modifier
-                .size(40.dp)
+                .size(48.dp)
                 .clip(CircleShape)
-                .background(MaterialTheme.colorScheme.secondary.copy(alpha = 0.15f)),
-            contentAlignment = Alignment.Center
-        ) {
-            Icon(
-                imageVector = Icons.Default.Person,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.secondary,
-                modifier = Modifier.size(20.dp)
-            )
-        }
+                .background(MaterialTheme.colorScheme.surfaceVariant),
+            contentScale = ContentScale.Crop,
+            fallback = androidx.compose.ui.graphics.vector.rememberVectorPainter(Icons.Default.Person)
+        )
 
-        Spacer(Modifier.width(12.dp))
+        Spacer(Modifier.width(16.dp))
 
-        // Name
         Column(modifier = Modifier.weight(1f)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
-                    text = balance.userName,
-                    style = MaterialTheme.typography.bodyMedium,
-                    fontWeight = FontWeight.Medium
+                    text = if (isCurrentUser) "You" else name,
+                    style = MaterialTheme.typography.bodyLarge,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onSurface
                 )
-                if (isCurrentUser) {
-                    Spacer(Modifier.width(6.dp))
+                
+                if (isOwner) {
+                    Spacer(Modifier.width(8.dp))
                     Surface(
-                        shape = RoundedCornerShape(20.dp),
-                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
+                        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.6f),
+                        shape = RoundedCornerShape(6.dp)
                     ) {
                         Text(
-                            text = "You",
+                            text = "OWNER",
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
                             style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
+                            fontWeight = FontWeight.Black,
+                            fontSize = 8.sp,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    }
+                } else {
+                    Spacer(Modifier.width(8.dp))
+                    Surface(
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
+                        shape = RoundedCornerShape(6.dp)
+                    ) {
+                        Text(
+                            text = "MEMBER",
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.Black,
+                            fontSize = 8.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
                 }
             }
+
+            val isOwed = amount > 0.01
+            val isOwe = amount < -0.01
             Text(
                 text = when {
-                    isPositive -> "gets back ₹${"%.2f".format(balance.amount)}"
-                    isNegative -> "owes ₹${"%.2f".format(-balance.amount)}"
+                    isOwed -> "gets back ₹${String.format(Locale.US, "%.2f", amount)}"
+                    isOwe -> "owes ₹${String.format(Locale.US, "%.2f", kotlin.math.abs(amount))}"
                     else -> "settled up"
                 },
                 style = MaterialTheme.typography.bodySmall,
                 color = when {
-                    isPositive -> MaterialTheme.colorScheme.secondary
-                    isNegative -> MaterialTheme.colorScheme.error
-                    else -> MaterialTheme.colorScheme.onSurfaceVariant
+                    isOwed -> MaterialTheme.colorScheme.secondary
+                    isOwe -> MaterialTheme.colorScheme.error
+                    else -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
                 }
             )
         }
 
-        // Net amount
-        Text(
-            text = when {
-                isSettled -> "✓"
-                isPositive -> "+₹${"%.2f".format(balance.amount)}"
-                else -> "-₹${"%.2f".format(-balance.amount)}"
-            },
-            style = MaterialTheme.typography.bodyMedium,
-            fontWeight = FontWeight.Bold,
-            color = when {
-                isPositive -> MaterialTheme.colorScheme.secondary
-                isNegative -> MaterialTheme.colorScheme.error
-                else -> MaterialTheme.colorScheme.onSurfaceVariant
-            }
-        )
+        if (kotlin.math.abs(amount) > 0.01) {
+            Text(
+                text = (if (amount > 0) "+" else "-") + "₹${String.format(Locale.US, "%.2f", kotlin.math.abs(amount))}",
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.Bold,
+                color = if (amount > 0) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.error
+            )
+        }
     }
 }
 
-// ─── Expense Row ──────────────────────────────────────────────────────────────
-
 @Composable
-private fun ExpenseRow(
-    expenseWithParticipants: ExpenseWithParticipants,
+private fun ExpenseListItem(
+    ewp: ExpenseWithParticipants,
     currentUserId: String,
     onClick: () -> Unit
 ) {
-    val expense = expenseWithParticipants.expense
+    val expense = ewp.expense
     val paidByYou = expense.paid_by == currentUserId
-    val yourShare = expenseWithParticipants.participants
-        .find { it.user_id == currentUserId }?.share_amount ?: 0.0
-
+    
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(12.dp))
-            .background(MaterialTheme.colorScheme.surface)
             .clickable { onClick() }
-            .padding(horizontal = 14.dp, vertical = 14.dp),
+            .padding(horizontal = 20.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        // Icon
-        Box(
-            modifier = Modifier
-                .size(44.dp)
-                .clip(RoundedCornerShape(12.dp))
-                .background(MaterialTheme.colorScheme.primaryContainer),
-            contentAlignment = Alignment.Center
+        Surface(
+            modifier = Modifier.size(48.dp),
+            shape = RoundedCornerShape(14.dp),
+            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
         ) {
-            Text(text = "💸", style = MaterialTheme.typography.titleMedium)
+            Box(contentAlignment = Alignment.Center) {
+                Text("💸", fontSize = 20.sp)
+            }
         }
 
-        Spacer(Modifier.width(12.dp))
+        Spacer(Modifier.width(16.dp))
 
-        // Details
         Column(modifier = Modifier.weight(1f)) {
             Text(
                 text = expense.title,
-                style = MaterialTheme.typography.bodyMedium,
+                style = MaterialTheme.typography.bodyLarge,
                 fontWeight = FontWeight.SemiBold,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
             Text(
-                text = if (paidByYou) "You paid" else "Paid by ${expenseWithParticipants.paidByUser.name}",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-        }
-
-        Spacer(Modifier.width(8.dp))
-
-        // Amount
-        Column(horizontalAlignment = Alignment.End) {
-            Text(
-                text = "₹${"%.2f".format(expense.amount)}",
-                style = MaterialTheme.typography.bodyMedium,
-                fontWeight = FontWeight.Bold
-            )
-            if (yourShare > 0) {
-                Text(
-                    text = if (paidByYou)
-                        "you lent ₹${"%.2f".format(expense.amount - yourShare)}"
-                    else
-                        "you owe ₹${"%.2f".format(yourShare)}",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = if (paidByYou)
-                        MaterialTheme.colorScheme.secondary
-                    else
-                        MaterialTheme.colorScheme.error
-                )
-            }
-        }
-    }
-}
-
-// ─── Member Row ───────────────────────────────────────────────────────────────
-
-@Composable
-private fun MemberRow(user: User, role: String) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(12.dp))
-            .background(MaterialTheme.colorScheme.surfaceVariant)
-            .padding(horizontal = 14.dp, vertical = 12.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Box(
-            modifier = Modifier
-                .size(44.dp)
-                .clip(CircleShape)
-                .background(MaterialTheme.colorScheme.secondary.copy(alpha = 0.15f)),
-            contentAlignment = Alignment.Center
-        ) {
-            Icon(
-                imageVector = Icons.Default.Person,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.secondary,
-                modifier = Modifier.size(22.dp)
-            )
-        }
-
-        Spacer(Modifier.width(12.dp))
-
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = user.name,
-                style = MaterialTheme.typography.bodyMedium,
-                fontWeight = FontWeight.Medium
-            )
-            Text(
-                text = "@${user.username}",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-        }
-
-        if (role == "owner") {
-            Surface(
-                shape = RoundedCornerShape(20.dp),
-                color = MaterialTheme.colorScheme.primaryContainer
-            ) {
-                Text(
-                    text = "Creator",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onPrimaryContainer,
-                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
-                )
-            }
-        }
-    }
-}
-
-// ─── Empty States ─────────────────────────────────────────────────────────────
-
-@Composable
-private fun BalancesEmptyState() {
-    Surface(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(12.dp),
-        color = MaterialTheme.colorScheme.surfaceVariant
-    ) {
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(20.dp),
-            contentAlignment = Alignment.Center
-        ) {
-            Text(
-                text = "No balances yet — add an expense to get started",
+                text = if (paidByYou) "You paid" else "Paid by ${ewp.paidByUser.name}",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
             )
         }
+
+        Column(horizontalAlignment = Alignment.End) {
+            Text(
+                text = "₹${String.format(Locale.US, "%.2f", expense.amount)}",
+                style = MaterialTheme.typography.bodyLarge,
+                fontWeight = FontWeight.Bold
+            )
+            
+            val yourShare = ewp.participants.find { it.user_id == currentUserId }?.share_amount ?: 0.0
+            if (yourShare > 0) {
+                Text(
+                    text = if (paidByYou) "you lent" else "you owe",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = if (paidByYou) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.error,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+        }
     }
+}
+
+@Composable
+private fun LoadingState() {
+    Box(Modifier.fillMaxWidth().padding(40.dp), contentAlignment = Alignment.Center) {
+        CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
+    }
+}
+
+@Composable
+private fun BalancesEmptyState() {
+    Text(
+        "No balances yet",
+        modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp),
+        style = MaterialTheme.typography.bodyMedium,
+        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+    )
 }
 
 @Composable
 private fun ExpensesEmptyState() {
-    Surface(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(12.dp),
-        color = MaterialTheme.colorScheme.surfaceVariant
-    ) {
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(24.dp),
-            contentAlignment = Alignment.Center
-        ) {
-            Text(
-                text = "💸  No expenses yet",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
-            )
-        }
-    }
+    Text(
+        "No expenses recorded yet",
+        modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp),
+        style = MaterialTheme.typography.bodyMedium,
+        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+    )
 }

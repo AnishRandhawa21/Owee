@@ -34,8 +34,10 @@ object SettlementCalculator {
                     Settlement(
                         fromUserId = debtor.userId,
                         fromUserName = debtor.userName,
+                        fromUserPhotoUrl = debtor.userPhotoUrl,
                         toUserId = creditor.userId,
                         toUserName = creditor.userName,
+                        toUserPhotoUrl = creditor.userPhotoUrl,
                         amount = amountToSettle
                     )
                 )

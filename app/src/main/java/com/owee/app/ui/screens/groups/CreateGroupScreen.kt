@@ -10,24 +10,33 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Group
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import coil.compose.AsyncImage
 import com.owee.app.data.remote.model.User
 import com.owee.app.viewmodel.GroupsViewModel
 
 @Composable
 fun CreateGroupScreen(
     groupsViewModel: GroupsViewModel,
-    onNavigateBack: () -> Unit,
     onGroupCreated: () -> Unit
 ) {
     val uiState by groupsViewModel.uiState.collectAsState()
+
+    // Refresh friends list when screen is opened
+    LaunchedEffect(Unit) {
+        groupsViewModel.refreshFriends()
+    }
 
     LaunchedEffect(uiState.message) {
         if (uiState.message == "Group created!") {
@@ -36,106 +45,136 @@ fun CreateGroupScreen(
         }
     }
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(horizontal = 20.dp)
-    ) {
-        Spacer(Modifier.height(16.dp))
-
-        OutlinedTextField(
-            value = uiState.groupNameInput,
-            onValueChange = { groupsViewModel.onGroupNameChanged(it) },
-            label = { Text("Group Name") },
-            placeholder = { Text("e.g. Goa Trip, Hostel Room...") },
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(14.dp),
-            singleLine = true
-        )
-
-        Spacer(Modifier.height(24.dp))
-
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
+    Box(modifier = Modifier.fillMaxSize()) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(MaterialTheme.colorScheme.background)
         ) {
-            Text(
-                text = "Add Friends",
-                style = MaterialTheme.typography.titleSmall,
-                fontWeight = FontWeight.SemiBold
-            )
-            if (uiState.selectedFriends.isNotEmpty()) {
-                Text(
-                    text = "${uiState.selectedFriends.size} selected",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.primary
-                )
-            }
-        }
-
-        Spacer(Modifier.height(12.dp))
-
-        if (uiState.friends.isEmpty()) {
+            // Group Identity Section
             Box(
                 modifier = Modifier
-                    .weight(1f)
-                    .fillMaxWidth(),
+                    .fillMaxWidth()
+                    .padding(20.dp),
                 contentAlignment = Alignment.Center
             ) {
-                Text(
-                    text = "No friends to add yet",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-        } else {
-            LazyColumn(
-                modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                items(uiState.friends, key = { it.id ?: "" }) { friend ->
-                    FriendSelectRow(
-                        friend = friend,
-                        isSelected = friend.id in uiState.selectedFriends,
-                        onToggle = {
-                            friend.id?.let { groupsViewModel.onFriendSelectionToggled(it) }
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Surface(
+                        modifier = Modifier.size(80.dp),
+                        shape = CircleShape,
+                        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.2f)
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(
+                                Icons.Default.Group, 
+                                null, 
+                                modifier = Modifier.size(40.dp),
+                                tint = MaterialTheme.colorScheme.primary
+                            )
                         }
+                    }
+                    Spacer(Modifier.height(16.dp))
+                    TextField(
+                        value = uiState.groupNameInput,
+                        onValueChange = { groupsViewModel.onGroupNameChanged(it) },
+                        placeholder = { Text("Enter group name", color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)) },
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = TextFieldDefaults.colors(
+                            focusedContainerColor = Color.Transparent,
+                            unfocusedContainerColor = Color.Transparent,
+                            focusedIndicatorColor = MaterialTheme.colorScheme.primary,
+                            unfocusedIndicatorColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.3f)
+                        ),
+                        textStyle = LocalTextStyle.current.copy(
+                            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                            fontSize = 18.sp,
+                            fontWeight = FontWeight.Bold
+                        ),
+                        singleLine = true
                     )
+                }
+            }
+
+            // Friend Selection Header
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp, vertical = 8.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "Add members",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold
+                )
+                if (uiState.selectedFriends.isNotEmpty()) {
+                    Surface(
+                        color = MaterialTheme.colorScheme.primaryContainer,
+                        shape = CircleShape
+                    ) {
+                        Text(
+                            text = "${uiState.selectedFriends.size} selected",
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+            }
+
+            // Friends List
+            if (uiState.friends.isEmpty()) {
+                Box(
+                    modifier = Modifier.weight(1f).fillMaxWidth(),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        "Add friends first to create a group",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                    )
+                }
+            } else {
+                LazyColumn(
+                    modifier = Modifier.weight(1f),
+                    contentPadding = PaddingValues(bottom = 80.dp)
+                ) {
+                    items(uiState.friends, key = { it.id ?: "" }) { friend ->
+                        FriendSelectListItem(
+                            friend = friend,
+                            isSelected = friend.id in uiState.selectedFriends,
+                            onToggle = { friend.id?.let { groupsViewModel.onFriendSelectionToggled(it) } }
+                        )
+                    }
                 }
             }
         }
 
-        Spacer(Modifier.height(16.dp))
-
-        val canCreate = uiState.groupNameInput.isNotBlank()
-                && uiState.selectedFriends.isNotEmpty()
-
+        // Bottom Button
+        val canCreate = uiState.groupNameInput.isNotBlank() && uiState.selectedFriends.isNotEmpty()
         Button(
             onClick = { groupsViewModel.createGroup() },
             enabled = canCreate && !uiState.isCreating,
             modifier = Modifier
+                .align(Alignment.BottomCenter)
                 .fillMaxWidth()
-                .height(52.dp),
-            shape = RoundedCornerShape(14.dp)
+                .padding(20.dp)
+                .height(56.dp),
+            shape = RoundedCornerShape(16.dp)
         ) {
             if (uiState.isCreating) {
-                CircularProgressIndicator(
-                    modifier = Modifier.size(20.dp),
-                    color = MaterialTheme.colorScheme.onPrimary,
-                    strokeWidth = 2.dp
-                )
+                CircularProgressIndicator(modifier = Modifier.size(24.dp), color = MaterialTheme.colorScheme.onPrimary)
             } else {
-                Text("Create Group", fontWeight = FontWeight.SemiBold)
+                Text("Create Group", fontSize = 16.sp, fontWeight = FontWeight.Bold)
             }
         }
-
-        Spacer(Modifier.height(16.dp))
     }
 }
 
 @Composable
-private fun FriendSelectRow(
+private fun FriendSelectListItem(
     friend: User,
     isSelected: Boolean,
     onToggle: () -> Unit
@@ -143,38 +182,34 @@ private fun FriendSelectRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(12.dp))
             .clickable { onToggle() }
-            .padding(horizontal = 12.dp, vertical = 10.dp),
+            .padding(horizontal = 20.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Box(
+        AsyncImage(
+            model = friend.photo_url,
+            contentDescription = null,
             modifier = Modifier
-                .size(44.dp)
+                .size(48.dp)
                 .clip(CircleShape)
-                .background(MaterialTheme.colorScheme.secondaryContainer),
-            contentAlignment = Alignment.Center
-        ) {
-            Icon(
-                imageVector = Icons.Default.Person,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSecondaryContainer,
-                modifier = Modifier.size(22.dp)
-            )
-        }
+                .background(MaterialTheme.colorScheme.surfaceVariant),
+            contentScale = ContentScale.Crop,
+            fallback = androidx.compose.ui.graphics.vector.rememberVectorPainter(Icons.Default.Person)
+        )
 
-        Spacer(Modifier.width(12.dp))
+        Spacer(Modifier.width(16.dp))
 
         Column(modifier = Modifier.weight(1f)) {
             Text(
                 text = friend.name,
-                style = MaterialTheme.typography.bodyMedium,
-                fontWeight = FontWeight.Medium
+                style = MaterialTheme.typography.bodyLarge,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onSurface
             )
             Text(
                 text = "@${friend.username}",
                 style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
             )
         }
 
@@ -184,11 +219,11 @@ private fun FriendSelectRow(
                 .clip(CircleShape)
                 .background(
                     if (isSelected) MaterialTheme.colorScheme.primary
-                    else MaterialTheme.colorScheme.surfaceVariant
+                    else Color.Transparent
                 )
                 .border(
                     width = if (isSelected) 0.dp else 1.5.dp,
-                    color = MaterialTheme.colorScheme.outline,
+                    color = if (isSelected) Color.Transparent else MaterialTheme.colorScheme.outline.copy(alpha = 0.3f),
                     shape = CircleShape
                 ),
             contentAlignment = Alignment.Center
@@ -198,7 +233,7 @@ private fun FriendSelectRow(
                     imageVector = Icons.Default.Check,
                     contentDescription = null,
                     tint = MaterialTheme.colorScheme.onPrimary,
-                    modifier = Modifier.size(14.dp)
+                    modifier = Modifier.size(16.dp)
                 )
             }
         }

@@ -1,6 +1,7 @@
 package com.owee.app.ui.screens.expenses
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -13,12 +14,15 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import com.owee.app.data.remote.model.ExpenseParticipant
+import androidx.compose.ui.unit.sp
+import coil.compose.AsyncImage
 import com.owee.app.data.remote.model.ExpenseWithParticipants
 import com.owee.app.data.remote.model.User
 import com.owee.app.viewmodel.ExpensesViewModel
+import java.util.*
 
 @Composable
 fun ExpenseDetailsScreen(
@@ -35,43 +39,26 @@ fun ExpenseDetailsScreen(
     }
 
     LazyColumn(
-        modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
+        modifier = Modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background),
+        contentPadding = PaddingValues(bottom = 24.dp)
     ) {
-
-        // ─── Summary Card ─────────────────────────────────────────────────
+        // Summary Header
         item {
-            ExpenseSummaryCard(
-                expense = expense,
-                currentUserId = currentUserId
-            )
+            ExpenseHeader(expense, currentUserId)
         }
 
-        // ─── Paid By ──────────────────────────────────────────────────────
         item {
-            Text(
-                text = "Paid By",
-                style = MaterialTheme.typography.titleSmall,
-                fontWeight = FontWeight.SemiBold,
-                modifier = Modifier.padding(vertical = 4.dp)
-            )
-            PaidByRow(
-                user = expense.paidByUser,
-                amount = expense.expense.amount,
-                isCurrentUser = expense.expense.paid_by == currentUserId
-            )
+            SectionHeader("Paid by")
         }
 
-        // ─── Participants ─────────────────────────────────────────────────
         item {
-            Spacer(Modifier.height(4.dp))
-            Text(
-                text = "Split Between",
-                style = MaterialTheme.typography.titleSmall,
-                fontWeight = FontWeight.SemiBold,
-                modifier = Modifier.padding(vertical = 4.dp)
-            )
+            PaidByItem(expense.paidByUser, expense.expense.amount, expense.expense.paid_by == currentUserId)
+        }
+
+        item {
+            SectionHeader("Split between")
         }
 
         items(
@@ -80,267 +67,167 @@ fun ExpenseDetailsScreen(
         ) { participant ->
             val user = expense.participantUsers.find { it.id == participant.user_id }
             if (user != null) {
-                ParticipantShareRow(
+                ParticipantListItem(
                     user = user,
-                    participant = participant,
-                    isCurrentUser = participant.user_id == currentUserId,
-                    splitType = expense.expense.split_type
+                    amount = participant.share_amount,
+                    isCurrentUser = participant.user_id == currentUserId
                 )
             }
         }
-
-        // ─── Split Type Badge ─────────────────────────────────────────────
+        
         item {
-            Spacer(Modifier.height(4.dp))
+            Spacer(Modifier.height(20.dp))
             Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.End
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp),
+                horizontalArrangement = Arrangement.Center
             ) {
                 Surface(
-                    shape = RoundedCornerShape(20.dp),
-                    color = MaterialTheme.colorScheme.secondaryContainer
+                    shape = RoundedCornerShape(12.dp),
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
                 ) {
                     Text(
-                        text = if (expense.expense.split_type == "equal")
-                            "⚖️  Equal Split" else "✏️  Custom Split",
+                        text = if (expense.expense.split_type == "equal") "⚖️  Split equally" else "✏️  Custom split",
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
                         style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSecondaryContainer,
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
             }
         }
-
-        item { Spacer(Modifier.height(32.dp)) }
     }
 }
 
-// ─── Summary Card ─────────────────────────────────────────────────────────────
+@Composable
+private fun SectionHeader(title: String) {
+    Text(
+        text = title,
+        style = MaterialTheme.typography.titleMedium,
+        fontWeight = FontWeight.Bold,
+        modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp)
+    )
+}
 
 @Composable
-private fun ExpenseSummaryCard(
-    expense: ExpenseWithParticipants,
-    currentUserId: String
-) {
-    val yourShare = expense.participants
-        .find { it.user_id == currentUserId }?.share_amount ?: 0.0
-    val youPaid = expense.expense.paid_by == currentUserId
+private fun ExpenseHeader(ewp: ExpenseWithParticipants, currentUserId: String) {
+    val isDark = isSystemInDarkTheme()
+    val yourShare = ewp.participants.find { it.user_id == currentUserId }?.share_amount ?: 0.0
+    val youPaid = ewp.expense.paid_by == currentUserId
 
     Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(16.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(16.dp),
+        shape = RoundedCornerShape(28.dp),
         colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.primaryContainer
-        )
+            containerColor = if (isDark) MaterialTheme.colorScheme.surfaceVariant else MaterialTheme.colorScheme.surface
+        ),
+        elevation = CardDefaults.cardElevation(defaultElevation = if (isDark) 0.dp else 2.dp)
     ) {
-        Column(modifier = Modifier.padding(20.dp)) {
-
+        Column(modifier = Modifier.padding(24.dp)) {
             Text(
-                text = expense.expense.title,
-                style = MaterialTheme.typography.headlineSmall,
+                text = ewp.expense.title.uppercase(),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
                 fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onPrimaryContainer
+                letterSpacing = 1.sp
             )
-
             Spacer(Modifier.height(8.dp))
-
             Text(
-                text = "₹${"%.2f".format(expense.expense.amount)}",
-                style = MaterialTheme.typography.displaySmall,
+                text = "₹${String.format(Locale.US, "%.2f", ewp.expense.amount)}",
+                style = MaterialTheme.typography.headlineLarge,
                 fontWeight = FontWeight.ExtraBold,
-                color = MaterialTheme.colorScheme.onPrimaryContainer
+                color = MaterialTheme.colorScheme.onSurface
             )
-
-            Spacer(Modifier.height(8.dp))
-
-            // Your status
+            Spacer(Modifier.height(16.dp))
+            
             Surface(
-                shape = RoundedCornerShape(10.dp),
-                color = if (youPaid)
-                    MaterialTheme.colorScheme.secondary.copy(alpha = 0.15f)
-                else
-                    MaterialTheme.colorScheme.error.copy(alpha = 0.12f)
+                shape = RoundedCornerShape(14.dp),
+                color = if (youPaid) MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.4f) else MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.4f)
             ) {
                 Text(
-                    text = if (youPaid)
-                        "You paid • you lent ₹${"%.2f".format(expense.expense.amount - yourShare)}"
-                    else
-                        "Your share • you owe ₹${"%.2f".format(yourShare)}",
-                    style = MaterialTheme.typography.bodySmall,
-                    fontWeight = FontWeight.Medium,
-                    color = if (youPaid)
-                        MaterialTheme.colorScheme.secondary
-                    else
-                        MaterialTheme.colorScheme.error,
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
-                )
-            }
-
-            // Date
-            if (expense.expense.created_at != null) {
-                Spacer(Modifier.height(8.dp))
-                Text(
-                    text = expense.expense.created_at.take(10), // show YYYY-MM-DD
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.6f)
+                    text = if (youPaid) 
+                        "You lent ₹${String.format(Locale.US, "%.2f", ewp.expense.amount - yourShare)}"
+                    else 
+                        "You owe ₹${String.format(Locale.US, "%.2f", yourShare)}",
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = if (youPaid) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.error
                 )
             }
         }
     }
 }
 
-// ─── Paid By Row ──────────────────────────────────────────────────────────────
-
 @Composable
-private fun PaidByRow(user: User, amount: Double, isCurrentUser: Boolean) {
+private fun PaidByItem(user: User, amount: Double, isCurrentUser: Boolean) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(12.dp))
-            .background(MaterialTheme.colorScheme.surfaceVariant)
-            .padding(horizontal = 14.dp, vertical = 12.dp),
+            .padding(horizontal = 20.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Box(
+        AsyncImage(
+            model = user.photo_url,
+            contentDescription = null,
             modifier = Modifier
-                .size(44.dp)
+                .size(48.dp)
                 .clip(CircleShape)
-                .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)),
-            contentAlignment = Alignment.Center
-        ) {
-            Icon(
-                imageVector = Icons.Default.Person,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.size(22.dp)
-            )
-        }
-
-        Spacer(Modifier.width(12.dp))
-
+                .background(MaterialTheme.colorScheme.surfaceVariant),
+            contentScale = ContentScale.Crop,
+            fallback = androidx.compose.ui.graphics.vector.rememberVectorPainter(Icons.Default.Person)
+        )
+        Spacer(Modifier.width(16.dp))
         Column(modifier = Modifier.weight(1f)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    text = if (isCurrentUser) "You" else user.name,
-                    style = MaterialTheme.typography.bodyMedium,
-                    fontWeight = FontWeight.SemiBold
-                )
-                if (isCurrentUser) {
-                    Spacer(Modifier.width(6.dp))
-                    Surface(
-                        shape = RoundedCornerShape(20.dp),
-                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
-                    ) {
-                        Text(
-                            text = "You",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
-                        )
-                    }
-                }
-            }
             Text(
-                text = "@${user.username}",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
+                text = if (isCurrentUser) "You" else user.name,
+                style = MaterialTheme.typography.bodyLarge,
+                fontWeight = FontWeight.SemiBold
             )
+            Text(text = "Paid total amount", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f))
         }
-
         Text(
-            text = "₹${"%.2f".format(amount)}",
+            text = "₹${String.format(Locale.US, "%.2f", amount)}",
             style = MaterialTheme.typography.bodyLarge,
-            fontWeight = FontWeight.Bold,
+            fontWeight = FontWeight.ExtraBold,
             color = MaterialTheme.colorScheme.primary
         )
     }
 }
 
-// ─── Participant Share Row ────────────────────────────────────────────────────
-
 @Composable
-private fun ParticipantShareRow(
-    user: User,
-    participant: ExpenseParticipant,
-    isCurrentUser: Boolean,
-    splitType: String
-) {
+private fun ParticipantListItem(user: User, amount: Double, isCurrentUser: Boolean) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(12.dp))
-            .background(
-                if (isCurrentUser)
-                    MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f)
-                else
-                    MaterialTheme.colorScheme.surfaceVariant
-            )
-            .padding(horizontal = 14.dp, vertical = 12.dp),
+            .padding(horizontal = 20.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Box(
+        AsyncImage(
+            model = user.photo_url,
+            contentDescription = null,
             modifier = Modifier
-                .size(40.dp)
+                .size(44.dp)
                 .clip(CircleShape)
-                .background(MaterialTheme.colorScheme.secondary.copy(alpha = 0.12f)),
-            contentAlignment = Alignment.Center
-        ) {
-            Icon(
-                imageVector = Icons.Default.Person,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.secondary,
-                modifier = Modifier.size(20.dp)
-            )
-        }
-
-        Spacer(Modifier.width(12.dp))
-
+                .background(MaterialTheme.colorScheme.surfaceVariant),
+            contentScale = ContentScale.Crop,
+            fallback = androidx.compose.ui.graphics.vector.rememberVectorPainter(Icons.Default.Person)
+        )
+        Spacer(Modifier.width(16.dp))
         Column(modifier = Modifier.weight(1f)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    text = user.name,
-                    style = MaterialTheme.typography.bodyMedium,
-                    fontWeight = FontWeight.Medium
-                )
-                if (isCurrentUser) {
-                    Spacer(Modifier.width(6.dp))
-                    Surface(
-                        shape = RoundedCornerShape(20.dp),
-                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
-                    ) {
-                        Text(
-                            text = "You",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
-                        )
-                    }
-                }
-            }
             Text(
-                text = "@${user.username}",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-        }
-
-        Column(horizontalAlignment = Alignment.End) {
-            Text(
-                text = "₹${"%.2f".format(participant.share_amount)}",
+                text = if (isCurrentUser) "You" else user.name,
                 style = MaterialTheme.typography.bodyMedium,
-                fontWeight = FontWeight.Bold,
-                color = if (isCurrentUser)
-                    MaterialTheme.colorScheme.primary
-                else
-                    MaterialTheme.colorScheme.onSurface
+                fontWeight = FontWeight.SemiBold
             )
-            if (splitType == "custom") {
-                Text(
-                    text = "custom",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
-                )
-            }
+            Text(text = "Their share", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f))
         }
+        Text(
+            text = "₹${String.format(Locale.US, "%.2f", amount)}",
+            style = MaterialTheme.typography.bodyMedium,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.onSurface
+        )
     }
 }

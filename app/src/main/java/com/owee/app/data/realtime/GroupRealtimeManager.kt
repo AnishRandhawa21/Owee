@@ -1,5 +1,6 @@
 package com.owee.app.data.realtime
 
+import android.util.Log
 import com.owee.app.data.remote.SupabaseProvider
 import io.github.jan.supabase.realtime.PostgresAction
 import io.github.jan.supabase.realtime.Realtime
@@ -12,53 +13,67 @@ import kotlinx.coroutines.flow.Flow
 class GroupRealtimeManager {
 
     private val client = SupabaseProvider.client
-
-    private var groupsChannel: RealtimeChannel? = null
-    private var membersChannel: RealtimeChannel? = null
+    private var channel: RealtimeChannel? = null
 
     suspend fun connect() {
-        if (client.realtime.status.value != Realtime.Status.CONNECTED) {
-            client.realtime.connect()
+        try {
+            if (client.realtime.status.value != Realtime.Status.CONNECTED) {
+                Log.d("GroupRealtime", "Connecting to Supabase Realtime...")
+                client.realtime.connect()
+            }
+        } catch (e: Exception) {
+            Log.e("GroupRealtime", "Error connecting to Realtime", e)
         }
     }
 
-    fun watchGroups(): Flow<PostgresAction>? {
-        val channel = client.realtime.channel("groups_realtime_${System.currentTimeMillis()}")
+    private fun getOrCreateChannel(): RealtimeChannel {
+        if (channel == null) {
+            // Use a stable but instance-unique name
+            val channelName = "group_updates_${hashCode()}"
+            channel = client.realtime.channel(channelName)
+            Log.d("GroupRealtime", "Created channel: $channelName")
+        }
+        return channel!!
+    }
 
-        val flow = channel.postgresChangeFlow<PostgresAction>(schema = "public") {
+    fun watchGroups(): Flow<PostgresAction> {
+        Log.d("GroupRealtime", "Setting up watch for 'groups' table")
+        return getOrCreateChannel().postgresChangeFlow<PostgresAction>(schema = "public") {
             table = "groups"
         }
-        groupsChannel = channel
-        return flow
     }
 
-    fun watchGroupMembers(): Flow<PostgresAction>? {
-        val channel = client.realtime.channel("group_members_realtime_${System.currentTimeMillis()}")
-
-        val flow = channel.postgresChangeFlow<PostgresAction>(schema = "public") {
+    fun watchGroupMembers(): Flow<PostgresAction> {
+        Log.d("GroupRealtime", "Setting up watch for 'group_members' table")
+        return getOrCreateChannel().postgresChangeFlow<PostgresAction>(schema = "public") {
             table = "group_members"
         }
-        membersChannel = channel
-        return flow
     }
 
     suspend fun subscribe() {
-        if (groupsChannel?.status?.value != RealtimeChannel.Status.SUBSCRIBED) {
-            groupsChannel?.subscribe()
-        }
-        if (membersChannel?.status?.value != RealtimeChannel.Status.SUBSCRIBED) {
-            membersChannel?.subscribe()
+        try {
+            val ch = channel
+            if (ch != null) {
+                Log.d("GroupRealtime", "Subscribing to channel ${ch.topic}...")
+                ch.subscribe()
+                Log.d("GroupRealtime", "Channel status: ${ch.status.value}")
+            } else {
+                Log.w("GroupRealtime", "No channel to subscribe to. Call watchGroups/watchGroupMembers first.")
+            }
+        } catch (e: Exception) {
+            Log.e("GroupRealtime", "Error subscribing to channel", e)
         }
     }
 
     suspend fun disconnect() {
-        groupsChannel?.let {
-            client.realtime.removeChannel(it)
-            groupsChannel = null
-        }
-        membersChannel?.let {
-            client.realtime.removeChannel(it)
-            membersChannel = null
+        try {
+            channel?.let {
+                Log.d("GroupRealtime", "Disconnecting channel ${it.topic}...")
+                client.realtime.removeChannel(it)
+                channel = null
+            }
+        } catch (e: Exception) {
+            Log.e("GroupRealtime", "Error disconnecting channel", e)
         }
     }
 }

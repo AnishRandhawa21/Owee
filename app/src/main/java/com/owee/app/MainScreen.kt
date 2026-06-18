@@ -3,6 +3,7 @@ package com.owee.app
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowBack
@@ -79,13 +80,13 @@ fun DynamicTopBar(
 
     val title = when (currentRoute) {
         Routes.Home.route -> "OWEE"
-        Routes.People.route -> "OWEE"
-        Routes.Groups.route -> "OWEE"
+        Routes.People.route -> "People"
+        Routes.Groups.route -> "Groups"
         Routes.CreateGroup.route -> "New Group"
         Routes.GroupDetails.route -> groupState.selectedGroup?.group?.name ?: "Group Details"
         Routes.CreateExpense.route -> "Add Expense"
-        Routes.ExpenseDetails.route -> "Expense Details"
-        Routes.Settlement.route -> "Recommended Settlements"
+        Routes.ExpenseDetails.route -> "Details"
+        Routes.Settlement.route -> "Settlements"
         Routes.Profile.route -> "Profile"
         else -> "OWEE"
     }
@@ -114,7 +115,15 @@ fun DynamicTopBar(
                     Icon(Icons.Default.ArrowBack, contentDescription = "Back")
                 }
             } else {
-                IconButton(onClick = { navController.navigate(Routes.Profile.route) }) {
+                IconButton(onClick = {
+                    navController.navigate(Routes.Profile.route) {
+                        launchSingleTop = true
+                        restoreState = true
+                        popUpTo(Routes.Home.route) {
+                            saveState = true
+                        }
+                    }
+                }) {
                     AsyncImage(
                         model = user.photoUrl,
                         contentDescription = "Profile",
@@ -151,9 +160,15 @@ fun DynamicFAB(currentRoute: String?, navController: NavHostController) {
         Routes.People.route -> {
             FloatingActionButton(
                 onClick = { /* Search is enough in redesigned PeopleScreen */ },
-                containerColor = MaterialTheme.colorScheme.primary
+                containerColor = MaterialTheme.colorScheme.primaryContainer,
+                contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                shape = RoundedCornerShape(16.dp)
             ) {
-                Icon(Icons.Default.PersonAdd, contentDescription = "Add Friend")
+                Icon(
+                    imageVector = Icons.Default.PersonAdd,
+                    contentDescription = "Add Friend",
+                    modifier = Modifier.size(28.dp)
+                )
             }
         }
         Routes.Groups.route -> {

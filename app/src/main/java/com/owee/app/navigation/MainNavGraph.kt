@@ -26,7 +26,8 @@ fun NavGraphBuilder.mainNavGraph(
     composable(Routes.Home.route) {
         HomeScreen(
             authViewModel = authViewModel,
-            balanceViewModel = balanceViewModel
+            balanceViewModel = balanceViewModel,
+            friendsViewModel = friendsViewModel
         )
     }
 
@@ -60,7 +61,6 @@ fun NavGraphBuilder.mainNavGraph(
         composable(Routes.CreateGroup.route) {
             CreateGroupScreen(
                 groupsViewModel = groupsViewModel,
-                onNavigateBack = { navController.popBackStack() },
                 onGroupCreated = {
                     navController.popBackStack(Routes.Groups.route, inclusive = false)
                 }
@@ -90,13 +90,16 @@ fun NavGraphBuilder.mainNavGraph(
 
         composable(Routes.CreateExpense.route) {
             val currentUserId = authViewModel.user.value.dbId ?: return@composable
-            val members = groupsViewModel.uiState.value.selectedGroup?.members ?: emptyList()
+            val selectedGroup = groupsViewModel.uiState.value.selectedGroup ?: return@composable
+            val groupId = selectedGroup.group.id ?: return@composable
+            val members = selectedGroup.members
 
             CreateExpenseScreen(
                 currentUserId = currentUserId,
+                groupId = groupId,
                 members = members,
                 expensesViewModel = expensesViewModel,
-                onNavigateBack = { navController.popBackStack() },
+                balanceViewModel = balanceViewModel,
                 onExpenseCreated = {
                     navController.popBackStack(Routes.GroupDetails.route, inclusive = false)
                 }
@@ -117,20 +120,19 @@ fun NavGraphBuilder.mainNavGraph(
             val groupId = groupsViewModel.uiState.value.selectedGroup?.group?.id ?: return@composable
             SettlementScreen(
                 groupId = groupId,
-                balanceViewModel = balanceViewModel,
-                onNavigateBack = { navController.popBackStack() }
+                balanceViewModel = balanceViewModel
             )
         }
+    }
 
-        composable(Routes.Profile.route) {
-            ProfileScreen(
-                viewModel = authViewModel,
-                onLogout = {
-                    navController.navigate(Routes.Login.route) {
-                        popUpTo(0) { inclusive = true }
-                    }
+    composable(Routes.Profile.route) {
+        ProfileScreen(
+            viewModel = authViewModel,
+            onLogout = {
+                navController.navigate(Routes.Login.route) {
+                    popUpTo(0) { inclusive = true }
                 }
-            )
-        }
+            }
+        )
     }
 }

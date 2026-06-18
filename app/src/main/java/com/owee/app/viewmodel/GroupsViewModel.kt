@@ -1,5 +1,6 @@
 package com.owee.app.viewmodel
 
+import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.owee.app.data.realtime.GroupRealtimeManager
@@ -9,6 +10,7 @@ import com.owee.app.data.repository.FriendRepository
 import com.owee.app.data.repository.GroupRepository
 import io.github.jan.supabase.realtime.PostgresAction
 import io.github.jan.supabase.realtime.decodeRecord
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -18,13 +20,15 @@ import kotlinx.coroutines.launch
 class GroupsViewModel(
     private val repository: GroupRepository = GroupRepository(),
     private val friendRepository: FriendRepository = FriendRepository(),
-    private val realtimeManager: GroupRealtimeManager = GroupRealtimeManager()
+    private val realtimeManager: GroupRealtimeManager = GroupRealtimeManager(),
 ) : ViewModel() {
 
     private var currentUserId: String? = null
 
     private val _uiState = MutableStateFlow(GroupUiState())
     val uiState: StateFlow<GroupUiState> = _uiState.asStateFlow()
+
+    private var loadGroupsJob: Job? = null
 
     // ─── Init ─────────────────────────────────────────────────────────────────
 
@@ -39,14 +43,24 @@ class GroupsViewModel(
         startRealtimeSubscriptions(userId)
     }
 
+    fun refresh() {
+        currentUserId?.let { loadGroups(it) }
+    }
+
     // ─── Load ─────────────────────────────────────────────────────────────────
 
-    private fun loadGroups(userId: String) {
-        viewModelScope.launch {
-            _uiState.update { it.copy(isLoading = true) }
+    private fun loadGroups(userId: String, isSilent: Boolean = false) {
+        loadGroupsJob?.cancel()
+        loadGroupsJob = viewModelScope.launch {
+            if (!isSilent) _uiState.update { it.copy(isLoading = true) }
             val groups = repository.getGroupsForUser(userId)
+            Log.d("GroupsViewModel", "Update state with ${groups.size} groups")
             _uiState.update { it.copy(groups = groups, isLoading = false) }
         }
+    }
+
+    fun refreshFriends() {
+        currentUserId?.let { loadFriends(it) }
     }
 
     private fun loadFriends(userId: String) {
@@ -113,18 +127,10 @@ class GroupsViewModel(
         }
     }
 
-    fun resetCreateForm() {
-        _uiState.update { it.copy(groupNameInput = "", selectedFriends = emptySet()) }
-    }
-
     // ─── Group Details ────────────────────────────────────────────────────────
 
     fun selectGroup(groupWithMembers: GroupWithMembers) {
         _uiState.update { it.copy(selectedGroup = groupWithMembers) }
-    }
-
-    fun clearSelectedGroup() {
-        _uiState.update { it.copy(selectedGroup = null) }
     }
 
     // ─── Realtime ─────────────────────────────────────────────────────────────
@@ -139,49 +145,54 @@ class GroupsViewModel(
 
                 realtimeManager.subscribe()
 
-                groupsFlow?.let { flow ->
-                    launch {
-                        flow.collect { action -> handleGroupAction(action, userId) }
-                    }
+                launch {
+                    groupsFlow.collect { action -> handleGroupAction(action, userId) }
                 }
 
-                membersFlow?.let { flow ->
-                    launch {
-                        flow.collect { action -> handleMemberAction(action, userId) }
-                    }
+                launch {
+                    membersFlow.collect { action -> handleMemberAction(action, userId) }
                 }
 
-            } catch (e: Exception) {
+            } catch (_: Exception) {
                 // Don't crash UI — realtime is best-effort
             }
         }
     }
 
     private suspend fun handleGroupAction(action: PostgresAction, userId: String) {
+        Log.d("GroupsViewModel", "Realtime: Group action $action for user $userId")
         when (action) {
-            is PostgresAction.Insert -> {
-                val updated = repository.getGroupsForUser(userId)
-                _uiState.update { it.copy(groups = updated) }
-            }
             is PostgresAction.Delete -> {
-                // On delete, just reload — don't try to decode the deleted record
-                val updated = repository.getGroupsForUser(userId)
-                _uiState.update { it.copy(groups = updated) }
+                // Only reload on delete. For Insert, we wait for Member Insert
+                loadGroups(userId, isSilent = true)
             }
             else -> {}
         }
     }
 
     private suspend fun handleMemberAction(action: PostgresAction, userId: String) {
+        Log.d("GroupsViewModel", "Realtime: Member action $action for user $userId")
         when (action) {
             is PostgresAction.Insert -> {
-                val member = action.decodeRecord<GroupMember>()
-                // Only refresh if it affects a group the current user is in
-                val affected = _uiState.value.groups.any { it.group.id == member.group_id }
-                if (affected) {
-                    val updated = repository.getGroupsForUser(userId)
-                    _uiState.update { it.copy(groups = updated) }
+                try {
+                    val member = action.decodeRecord<GroupMember>()
+                    val isMe = member.user_id == userId
+                    val isExistingGroup = _uiState.value.groups.any { it.group.id == member.group_id }
+                    
+                    Log.d("GroupsViewModel", "Realtime: Member added. isMe=$isMe, isExistingGroup=$isExistingGroup")
+                    
+                    if (isMe || isExistingGroup) {
+                        Log.d("GroupsViewModel", "Realtime: Relevant member insert! Reloading in 1s...")
+                        kotlinx.coroutines.delay(1000L)
+                        loadGroups(userId, isSilent = true)
+                    }
+                } catch (e: Exception) {
+                    Log.e("GroupsViewModel", "Realtime: Error decoding member", e)
+                    loadGroups(userId, isSilent = true)
                 }
+            }
+            is PostgresAction.Delete -> {
+                loadGroups(userId, isSilent = true)
             }
             else -> {}
         }
@@ -199,7 +210,7 @@ class GroupsViewModel(
     }
 
     fun deleteGroup(groupId: String) {
-        val userId = currentUserId ?: return
+        if (currentUserId == null) return
         viewModelScope.launch {
             val success = repository.deleteGroup(groupId)
             if (success) {

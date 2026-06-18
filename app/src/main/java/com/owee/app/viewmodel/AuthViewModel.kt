@@ -23,7 +23,6 @@ import kotlinx.serialization.json.jsonPrimitive
 //)
 
 sealed class AuthState {
-    object Idle : AuthState()
     object Loading : AuthState()
     object Authenticated : AuthState()
     object NeedsProfile : AuthState()
@@ -31,7 +30,7 @@ sealed class AuthState {
 }
 
 class AuthViewModel(
-    private val userRepository: UserRepository = UserRepository()
+    private val userRepository: UserRepository = UserRepository(),
 ) : ViewModel() {
 
     private val _user = MutableStateFlow(AuthUser())
@@ -65,7 +64,7 @@ class AuthViewModel(
 
     private suspend fun loadUserProfile(userId: String) {
         // Only fetch if we don't already have the profile or it's a different user
-        if (_user.value.authId == userId && !_user.value.name.isNullOrEmpty()) {
+        if ((_user.value.authId == userId) && !_user.value.name.isNullOrEmpty()) {
             _authState.value = AuthState.Authenticated
             return
         }

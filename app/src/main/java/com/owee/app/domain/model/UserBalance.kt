@@ -1,5 +1,8 @@
 package com.owee.app.domain.model
 
+import kotlinx.serialization.Serializable
+
+@Serializable
 data class UserBalance(
     val userId: String,
     val userName: String,

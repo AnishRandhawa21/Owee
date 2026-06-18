@@ -83,9 +83,13 @@ class ExpenseRepository {
                 }
                 .decodeList<Expense>()
 
-            if (expenses.isEmpty()) return emptyList()
+            if (expenses.isEmpty()) {
+                android.util.Log.d("ExpenseRepository", "No expenses found for group $groupId")
+                return emptyList()
+            }
 
             val expenseIds = expenses.mapNotNull { it.id }
+            android.util.Log.d("ExpenseRepository", "Found ${expenses.size} expenses. Fetching participants for: $expenseIds")
 
             // 2. Fetch all participants in one query
             val allParticipants = SupabaseProvider.client
@@ -94,6 +98,8 @@ class ExpenseRepository {
                     filter { isIn("expense_id", expenseIds) }
                 }
                 .decodeList<ExpenseParticipant>()
+
+            android.util.Log.d("ExpenseRepository", "Fetched ${allParticipants.size} participants total")
 
             // 3. Collect all unique user IDs
             val paidByIds = expenses.map { it.paid_by }
@@ -124,6 +130,7 @@ class ExpenseRepository {
             }
 
         } catch (e: Exception) {
+            if (e is kotlinx.coroutines.CancellationException) throw e
             android.util.Log.e("ExpenseRepository", "getExpensesForGroup failed", e)
             emptyList()
         }
@@ -152,18 +159,24 @@ class ExpenseRepository {
         expenses.forEach { ewp ->
             val payerId = ewp.expense.paid_by
 
-            // Payer gets credited the full amount
-            totalPaid[payerId] = (totalPaid[payerId] ?: 0.0) + ewp.expense.amount
+            // Only process if the payer is part of the group members provided
+            // This prevents "external" group expenses from leaking into this calculation
+            if (totalPaid.containsKey(payerId)) {
+                // Payer gets credited the full amount
+                totalPaid[payerId] = (totalPaid[payerId] ?: 0.0) + ewp.expense.amount
 
-            // Each participant owes their share
-            ewp.participants.forEach { participant ->
-                totalOwed[participant.user_id] =
-                    (totalOwed[participant.user_id] ?: 0.0) + participant.share_amount
+                // Each participant owes their share
+                ewp.participants.forEach { participant ->
+                    if (totalOwed.containsKey(participant.user_id)) {
+                        totalOwed[participant.user_id] =
+                            (totalOwed[participant.user_id] ?: 0.0) + participant.share_amount
+                    }
+                }
             }
         }
 
         // Build MemberBalance list
-        return members.mapNotNull { user ->
+        return members.asSequence().mapNotNull { user ->
             val id = user.id ?: return@mapNotNull null
             val paid = totalPaid[id] ?: 0.0
             val owed = totalOwed[id] ?: 0.0
@@ -173,6 +186,6 @@ class ExpenseRepository {
                 totalOwed = owed,
                 netBalance = paid - owed  // positive = owed back, negative = owes others
             )
-        }.sortedByDescending { it.netBalance }
+        }.sortedByDescending { it.netBalance }.toList()
     }
 }

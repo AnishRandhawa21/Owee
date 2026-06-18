@@ -61,6 +61,7 @@ class GroupRepository {
     // ─── Read ─────────────────────────────────────────────────────────────────
 
     suspend fun getGroupsForUser(userId: String): List<GroupWithMembers> {
+        android.util.Log.d("GroupRepository", "Fetching groups for user: $userId")
         return try {
             // 1. Get all group_ids this user belongs to
             val memberships = SupabaseProvider.client
@@ -70,6 +71,7 @@ class GroupRepository {
                 }
                 .decodeList<GroupMember>()
 
+            android.util.Log.d("GroupRepository", "Found ${memberships.size} memberships for $userId")
             if (memberships.isEmpty()) return emptyList()
 
             val groupIds = memberships.map { it.group_id }
@@ -83,6 +85,7 @@ class GroupRepository {
                 }
                 .decodeList<Group>()
 
+            android.util.Log.d("GroupRepository", "Fetched ${groups.size} groups details")
             if (groups.isEmpty()) return emptyList()
 
             // 3. Fetch all members for those groups in one query
@@ -103,7 +106,7 @@ class GroupRepository {
                 .decodeList<User>()
 
             // 5. Assemble GroupWithMembers list
-            groups.map { group ->
+            val result = groups.map { group ->
                 val groupMemberships = allMembers.filter { it.group_id == group.id }
                 val groupMemberIds = groupMemberships.map { it.user_id }
                 val groupUsers = users.filter { it.id in groupMemberIds }
@@ -117,7 +120,11 @@ class GroupRepository {
                     currentUserRole = currentUserMembership?.role ?: "member"
                 )
             }
+            android.util.Log.d("GroupRepository", "Assembled ${result.size} GroupWithMembers")
+            result
         } catch (e: Exception) {
+            if (e is kotlinx.coroutines.CancellationException) throw e
+            android.util.Log.e("GroupRepository", "getGroupsForUser failed", e)
             emptyList()
         }
     }

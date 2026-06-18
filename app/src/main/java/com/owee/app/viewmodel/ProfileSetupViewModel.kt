@@ -19,7 +19,7 @@ sealed class ProfileSetupState {
 }
 
 class ProfileSetupViewModel(
-    private val userRepository: UserRepository = UserRepository()
+    private val userRepository: UserRepository = UserRepository(),
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow<ProfileSetupState>(ProfileSetupState.Idle)
@@ -69,9 +69,5 @@ class ProfileSetupViewModel(
                 _uiState.value = ProfileSetupState.Error(e.message ?: "An unexpected error occurred")
             }
         }
-    }
-
-    fun resetState() {
-        _uiState.value = ProfileSetupState.Idle
     }
 }

@@ -48,7 +48,7 @@ class UserRepository {
                     }
                 }
             response.decodeSingleOrNull<User>()
-        } catch (e: Exception) {
+        } catch (_: Exception) {
             null
         }
     }

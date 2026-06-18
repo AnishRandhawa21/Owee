@@ -96,7 +96,8 @@ class FriendRepository {
                         requestId = request.id ?: "",
                         senderId = sender.id ?: "",
                         senderName = sender.name,
-                        senderUsername = sender.username
+                        senderUsername = sender.username,
+                        senderPhotoUrl = sender.photo_url
                     )
                 } else null
             }

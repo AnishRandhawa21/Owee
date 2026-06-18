@@ -6,7 +6,6 @@ import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -15,6 +14,7 @@ import androidx.compose.material.icons.filled.Group
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.*
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -23,6 +23,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.owee.app.data.remote.model.GroupWithMembers
 import com.owee.app.ui.components.MemberAvatars
@@ -31,6 +32,7 @@ import com.owee.app.viewmodel.BalanceViewModel
 import com.owee.app.viewmodel.GroupsViewModel
 import java.util.*
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun GroupsScreen(
     authViewModel: AuthViewModel,
@@ -44,10 +46,6 @@ fun GroupsScreen(
     val user by authViewModel.user.collectAsState()
 
     var groupToDelete by remember { mutableStateOf<GroupWithMembers?>(null) }
-
-    LaunchedEffect(user.dbId) {
-        groupsViewModel.initialize(user.dbId?.ifBlank { null })
-    }
 
     // Delete confirmation dialog
     groupToDelete?.let { group ->
@@ -73,100 +71,85 @@ fun GroupsScreen(
         )
     }
 
-    Box(modifier = Modifier.fillMaxSize()) {
+    PullToRefreshBox(
+        isRefreshing = uiState.isLoading,
+        onRefresh = { 
+            groupsViewModel.refresh()
+            balanceViewModel.refresh()
+        },
+        modifier = Modifier.fillMaxSize()
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(MaterialTheme.colorScheme.background)
+        ) {
+            // Summary Header (Clean, Matching Home Style)
+            GroupsSummaryHeader(balanceState)
 
-        when {
-            uiState.isLoading -> {
-                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    CircularProgressIndicator()
+            // Search Bar (Pill style matching PeopleScreen)
+            GroupsSearchBar(
+                query = uiState.searchQuery,
+                onQueryChange = { groupsViewModel.onSearchQueryChanged(it) }
+            )
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp, vertical = 8.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "My Groups",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onBackground
+                )
+                Surface(
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Text(
+                        text = "${uiState.groups.size} TOTAL",
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 10.sp
+                    )
                 }
             }
 
-            uiState.groups.isEmpty() -> {
+            if (uiState.isLoading && uiState.groups.isEmpty()) {
+                Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
+                }
+            } else if (uiState.groups.isEmpty()) {
                 EmptyGroupsState()
-            }
-
-            else -> {
+            } else {
                 val filteredGroups = remember(uiState.groups, uiState.searchQuery) {
                     if (uiState.searchQuery.isBlank()) uiState.groups
                     else uiState.groups.filter { it.group.name.contains(uiState.searchQuery, ignoreCase = true) }
                 }
 
-                Column(modifier = Modifier.fillMaxSize()) {
-                    // Summary Section (Matching image)
-                    GroupsSummaryHeader(balanceState)
+                LazyColumn(
+                    modifier = Modifier.weight(1f),
+                    contentPadding = PaddingValues(bottom = 80.dp)
+                ) {
+                    items(filteredGroups, key = { it.group.id ?: "" }) { groupWithMembers ->
+                        val groupBalance = balanceState.overallBalance?.groupBalances?.find { it.groupId == groupWithMembers.group.id }
+                        val userBalance = groupBalance?.balances?.find { it.userId == user.dbId }?.amount ?: 0.0
 
-                    // Search Bar
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 16.dp, vertical = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        OutlinedTextField(
-                            value = uiState.searchQuery,
-                            onValueChange = { groupsViewModel.onSearchQueryChanged(it) },
-                            modifier = Modifier
-                                .weight(1f)
-                                .heightIn(min = 52.dp),
-                            placeholder = { Text("Search groups...") },
-                            leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
-                            shape = RoundedCornerShape(24.dp),
-                            colors = OutlinedTextFieldDefaults.colors(
-                                focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
-                                unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
-                                focusedBorderColor = Color.Transparent,
-                                unfocusedBorderColor = Color.Transparent
-                            ),
-                            singleLine = true
+                        GroupListItem(
+                            groupWithMembers = groupWithMembers,
+                            balanceAmount = userBalance,
+                            onClick = {
+                                groupsViewModel.selectGroup(groupWithMembers)
+                                onNavigateToDetails(groupWithMembers.group.id ?: "")
+                            },
+                            onDeleteClick = { groupToDelete = groupWithMembers }
                         )
-                        Spacer(Modifier.width(8.dp))
-                        IconButton(
-                            onClick = { /* Filter */ },
-                            modifier = Modifier
-                                .size(52.dp)
-                                .background(
-                                    MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f),
-                                    RoundedCornerShape(12.dp)
-                                )
-                        ) {
-                            Icon(Icons.Default.Tune, contentDescription = "Filter", tint = MaterialTheme.colorScheme.primary)
-                        }
-                    }
-
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 16.dp, vertical = 8.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = "Active Groups",
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
-
-                    LazyColumn(
-                        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
-                        verticalArrangement = Arrangement.spacedBy(12.dp),
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        items(filteredGroups, key = { it.group.id ?: "" }) { groupWithMembers ->
-                            val groupBalance = balanceState.overallBalance?.groupBalances?.find { it.groupId == groupWithMembers.group.id }
-                            val userBalance = groupBalance?.balances?.find { it.userId == user.dbId }?.amount ?: 0.0
-
-                            GroupCard(
-                                groupWithMembers = groupWithMembers,
-                                balanceAmount = userBalance,
-                                onClick = {
-                                    groupsViewModel.selectGroup(groupWithMembers)
-                                    onNavigateToDetails(groupWithMembers.group.id ?: "")
-                                },
-                                onDeleteClick = { groupToDelete = groupWithMembers }
-                            )
-                        }
                     }
                 }
             }
@@ -177,72 +160,131 @@ fun GroupsScreen(
 @Composable
 private fun GroupsSummaryHeader(balanceState: com.owee.app.viewmodel.BalanceUiState) {
     val overall = balanceState.overallBalance
-    val totalReceivable = overall?.totalOwed ?: 0.0
-    val totalOwe = overall?.totalOwe ?: 0.0
     val totalOwed = overall?.totalOwed ?: 0.0
+    val totalOwe = overall?.totalOwe ?: 0.0
+    val isDark = isSystemInDarkTheme()
 
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 8.dp),
+            .padding(16.dp),
         shape = RoundedCornerShape(24.dp),
         colors = CardDefaults.cardColors(
-            containerColor = if (isSystemInDarkTheme()) MaterialTheme.colorScheme.surfaceVariant else MaterialTheme.colorScheme.surface
+            containerColor = if (isDark) MaterialTheme.colorScheme.surfaceVariant else MaterialTheme.colorScheme.surface
         ),
-        elevation = CardDefaults.cardElevation(defaultElevation = if (isSystemInDarkTheme()) 0.dp else 2.dp)
+        elevation = CardDefaults.cardElevation(defaultElevation = if (isDark) 0.dp else 2.dp)
     ) {
-        Column(
-            modifier = Modifier.padding(20.dp)
-        ) {
+        Column(modifier = Modifier.padding(20.dp)) {
             Text(
-                text = "TOTAL RECEIVABLE",
+                text = "TOTAL GROUP BALANCE",
                 style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                fontWeight = FontWeight.Bold
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
+                fontWeight = FontWeight.Bold,
+                letterSpacing = 0.5.sp
             )
+            
+            Spacer(Modifier.height(8.dp))
+            
+            val total = totalOwed - totalOwe
             Text(
-                text = String.format(Locale.US, "₹%.2f", totalReceivable),
+                text = String.format(Locale.US, "₹%.2f", total),
                 style = MaterialTheme.typography.headlineLarge,
                 fontWeight = FontWeight.ExtraBold,
-                color = MaterialTheme.colorScheme.onSurface
+                color = when {
+                    total > 0.01 -> MaterialTheme.colorScheme.secondary
+                    total < -0.01 -> MaterialTheme.colorScheme.error
+                    else -> MaterialTheme.colorScheme.onSurface
+                }
             )
             
-            Spacer(Modifier.height(12.dp))
+            Spacer(Modifier.height(16.dp))
             
-            Row(modifier = Modifier.fillMaxWidth()) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = "YOU OWE",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Text(
-                        text = String.format(Locale.US, "₹%.2f", totalOwe),
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
-                }
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = "YOU ARE OWED",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Text(
-                        text = String.format(Locale.US, "₹%.2f", totalOwed),
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.secondary
-                    )
-                }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                SummarySubCard(
+                    title = "YOU'RE OWED",
+                    amount = totalOwed,
+                    color = MaterialTheme.colorScheme.secondary,
+                    modifier = Modifier.weight(1f)
+                )
+                SummarySubCard(
+                    title = "YOU OWE",
+                    amount = totalOwe,
+                    color = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.weight(1f)
+                )
             }
         }
     }
 }
 
 @Composable
-private fun GroupCard(
+private fun SummarySubCard(title: String, amount: Double, color: Color, modifier: Modifier) {
+    Surface(
+        modifier = modifier,
+        shape = RoundedCornerShape(16.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+    ) {
+        Column(modifier = Modifier.padding(12.dp)) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f),
+                fontWeight = FontWeight.Bold,
+                fontSize = 9.sp
+            )
+            Spacer(Modifier.height(4.dp))
+            Text(
+                text = String.format(Locale.US, "₹%.2f", amount),
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                color = color
+            )
+        }
+    }
+}
+
+@Composable
+private fun GroupsSearchBar(query: String, onQueryChange: (String) -> Unit) {
+    TextField(
+        value = query,
+        onValueChange = onQueryChange,
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 20.dp, vertical = 8.dp),
+        placeholder = {
+            Text(
+                "Search groups...",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+            )
+        },
+        leadingIcon = {
+            Icon(
+                Icons.Default.Search,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+            )
+        },
+        shape = RoundedCornerShape(16.dp),
+        colors = TextFieldDefaults.colors(
+            focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+            unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
+            disabledContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
+            focusedIndicatorColor = Color.Transparent,
+            unfocusedIndicatorColor = Color.Transparent,
+            disabledIndicatorColor = Color.Transparent,
+            focusedTextColor = MaterialTheme.colorScheme.onSurface,
+            unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
+        ),
+        singleLine = true
+    )
+}
+
+@Composable
+private fun GroupListItem(
     groupWithMembers: GroupWithMembers,
     balanceAmount: Double,
     onClick: () -> Unit,
@@ -250,134 +292,135 @@ private fun GroupCard(
 ) {
     var menuExpanded by remember { mutableStateOf(false) }
 
-    Box {
-        Card(
-            modifier = Modifier
-                .fillMaxWidth()
-                .combinedClickable(
-                    onClick = onClick,
-                    onLongClick = {
-                        if (groupWithMembers.currentUserRole == "owner") {
-                            menuExpanded = true
-                        }
-                    }
-                ),
-            shape = RoundedCornerShape(24.dp),
-            colors = CardDefaults.cardColors(
-                containerColor = if (isSystemInDarkTheme()) MaterialTheme.colorScheme.surfaceVariant else MaterialTheme.colorScheme.surface
-            ),
-            elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
-        ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(12.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                // First Member Avatar as Group Icon
-                val firstMember = groupWithMembers.members.firstOrNull()
-                Box(
-                    modifier = Modifier
-                        .size(48.dp)
-                        .clip(CircleShape)
-                        .background(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.2f)),
-                    contentAlignment = Alignment.Center
-                ) {
-                    if (firstMember?.photo_url != null) {
-                        AsyncImage(
-                            model = firstMember.photo_url,
-                            contentDescription = null,
-                            contentScale = ContentScale.Crop,
-                            modifier = Modifier.fillMaxSize()
-                        )
-                    } else {
-                        Icon(
-                            imageVector = Icons.Default.Group,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(24.dp)
-                        )
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .combinedClickable(
+                onClick = onClick,
+                onLongClick = {
+                    if (groupWithMembers.currentUserRole == "owner") {
+                        menuExpanded = true
                     }
                 }
+            )
+            .padding(horizontal = 20.dp, vertical = 12.dp)
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            // Group Avatar - Show creator's photo
+            val creator = groupWithMembers.members.find { it.id == groupWithMembers.group.created_by }
+            val displayUser = creator ?: groupWithMembers.members.firstOrNull()
 
-                Spacer(Modifier.width(12.dp))
+            Box(
+                modifier = Modifier
+                    .size(52.dp)
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(MaterialTheme.colorScheme.surfaceVariant),
+                contentAlignment = Alignment.Center
+            ) {
+                if (displayUser?.photo_url != null) {
+                    AsyncImage(
+                        model = displayUser.photo_url,
+                        contentDescription = null,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.fillMaxSize()
+                    )
+                } else {
+                    Icon(
+                        imageVector = Icons.Default.Group,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(28.dp)
+                    )
+                }
+            }
 
-                Column(modifier = Modifier.weight(1f)) {
+            Spacer(Modifier.width(16.dp))
+
+            Column(modifier = Modifier.weight(1f)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
                         text = groupWithMembers.group.name,
                         style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        maxLines = 1,
+                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false)
                     )
                     
-                    Spacer(Modifier.height(4.dp))
+                    Spacer(Modifier.width(8.dp))
                     
-                    MemberAvatars(
-                        members = groupWithMembers.members,
-                        avatarSize = 20.dp,
-                        overlap = 6.dp
-                    )
-                }
-
-                // Balance Info
-                Column(horizontalAlignment = Alignment.End) {
-                    when {
-                        balanceAmount > 0 -> {
-                            Text(
-                                text = "OWED",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                            Text(
-                                text = String.format(Locale.US, "₹%.2f", balanceAmount),
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.secondary // Green-ish from theme
-                            )
-                        }
-                        balanceAmount < 0 -> {
-                            Text(
-                                text = "YOU OWE",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                            Text(
-                                text = String.format(Locale.US, "₹%.2f", -balanceAmount),
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.error
-                            )
-                        }
-                        else -> {
-                            Text(
-                                text = "Settled up",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
-                            )
-                        }
+                    // Role Pill
+                    val isOwner = groupWithMembers.currentUserRole == "owner"
+                    Surface(
+                        color = if (isOwner) 
+                            MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.6f) 
+                        else 
+                            MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
+                        shape = RoundedCornerShape(6.dp)
+                    ) {
+                        Text(
+                            text = groupWithMembers.currentUserRole.uppercase(),
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.Black,
+                            fontSize = 8.sp,
+                            color = if (isOwner) 
+                                MaterialTheme.colorScheme.primary 
+                            else 
+                                MaterialTheme.colorScheme.onSurfaceVariant
+                        )
                     }
                 }
+                
+                Spacer(Modifier.height(4.dp))
+
+                MemberAvatars(
+                    members = groupWithMembers.members,
+                    avatarSize = 18.dp,
+                    overlap = 6.dp
+                )
+            }
+
+            Column(horizontalAlignment = Alignment.End) {
+                val isOwed = balanceAmount > 0.01
+                val isOwe = balanceAmount < -0.01
+                
+                val statusText = when {
+                    isOwed -> "OWED"
+                    isOwe -> "YOU OWE"
+                    else -> "SETTLED UP"
+                }
+                
+                val amountColor = when {
+                    isOwed -> MaterialTheme.colorScheme.secondary
+                    isOwe -> MaterialTheme.colorScheme.error
+                    else -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                }
+                
+                Text(
+                    text = if (balanceAmount != 0.0) "₹${String.format(Locale.US, "%.2f", kotlin.math.abs(balanceAmount))}" else "Settled",
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = amountColor
+                )
+                Text(
+                    statusText,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                    letterSpacing = 0.5.sp
+                )
             }
         }
 
-        // Dropdown menu on long press
         DropdownMenu(
             expanded = menuExpanded,
             onDismissRequest = { menuExpanded = false }
         ) {
             DropdownMenuItem(
-                text = {
-                    Text(
-                        text = "Delete Group",
-                        color = MaterialTheme.colorScheme.error
-                    )
-                },
-                leadingIcon = {
-                    Icon(
-                        imageVector = Icons.Default.Delete,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.error
-                    )
-                },
+                text = { Text("Delete Group", color = MaterialTheme.colorScheme.error) },
+                leadingIcon = { Icon(Icons.Default.Delete, null, tint = MaterialTheme.colorScheme.error) },
                 onClick = {
                     menuExpanded = false
                     onDeleteClick()
@@ -395,7 +438,7 @@ private fun EmptyGroupsState() {
                 imageVector = Icons.Default.Group,
                 contentDescription = null,
                 modifier = Modifier.size(72.dp),
-                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
+                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.2f)
             )
             Spacer(Modifier.height(16.dp))
             Text(
@@ -403,9 +446,8 @@ private fun EmptyGroupsState() {
                 style = MaterialTheme.typography.titleMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
-            Spacer(Modifier.height(6.dp))
             Text(
-                text = "Tap + to create your first group",
+                text = "Tap + to create a new group",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
             )
