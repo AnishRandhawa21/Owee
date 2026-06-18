@@ -1,4 +1,4 @@
-package com.owee.app.ui.screens
+package com.owee.app.ui.screens.expenses
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
@@ -7,7 +7,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -21,7 +20,6 @@ import com.owee.app.data.remote.model.ExpenseWithParticipants
 import com.owee.app.data.remote.model.User
 import com.owee.app.viewmodel.ExpensesViewModel
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ExpenseDetailsScreen(
     currentUserId: String,
@@ -36,99 +34,84 @@ fun ExpenseDetailsScreen(
         return
     }
 
-    Column(modifier = Modifier.fillMaxSize()) {
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
 
-        TopAppBar(
-            title = { Text("Expense Details", fontWeight = FontWeight.SemiBold) },
-            navigationIcon = {
-                IconButton(onClick = {
-                    expensesViewModel.clearSelectedExpense()
-                    onNavigateBack()
-                }) {
-                    Icon(Icons.Default.ArrowBack, contentDescription = "Back")
-                }
-            }
-        )
+        // ─── Summary Card ─────────────────────────────────────────────────
+        item {
+            ExpenseSummaryCard(
+                expense = expense,
+                currentUserId = currentUserId
+            )
+        }
 
-        LazyColumn(
-            modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
+        // ─── Paid By ──────────────────────────────────────────────────────
+        item {
+            Text(
+                text = "Paid By",
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.padding(vertical = 4.dp)
+            )
+            PaidByRow(
+                user = expense.paidByUser,
+                amount = expense.expense.amount,
+                isCurrentUser = expense.expense.paid_by == currentUserId
+            )
+        }
 
-            // ─── Summary Card ─────────────────────────────────────────────────
-            item {
-                ExpenseSummaryCard(
-                    expense = expense,
-                    currentUserId = currentUserId
+        // ─── Participants ─────────────────────────────────────────────────
+        item {
+            Spacer(Modifier.height(4.dp))
+            Text(
+                text = "Split Between",
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.padding(vertical = 4.dp)
+            )
+        }
+
+        items(
+            expense.participants,
+            key = { it.user_id }
+        ) { participant ->
+            val user = expense.participantUsers.find { it.id == participant.user_id }
+            if (user != null) {
+                ParticipantShareRow(
+                    user = user,
+                    participant = participant,
+                    isCurrentUser = participant.user_id == currentUserId,
+                    splitType = expense.expense.split_type
                 )
             }
+        }
 
-            // ─── Paid By ──────────────────────────────────────────────────────
-            item {
-                Text(
-                    text = "Paid By",
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.SemiBold,
-                    modifier = Modifier.padding(vertical = 4.dp)
-                )
-                PaidByRow(
-                    user = expense.paidByUser,
-                    amount = expense.expense.amount,
-                    isCurrentUser = expense.expense.paid_by == currentUserId
-                )
-            }
-
-            // ─── Participants ─────────────────────────────────────────────────
-            item {
-                Spacer(Modifier.height(4.dp))
-                Text(
-                    text = "Split Between",
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.SemiBold,
-                    modifier = Modifier.padding(vertical = 4.dp)
-                )
-            }
-
-            items(
-                expense.participants,
-                key = { it.user_id }
-            ) { participant ->
-                val user = expense.participantUsers.find { it.id == participant.user_id }
-                if (user != null) {
-                    ParticipantShareRow(
-                        user = user,
-                        participant = participant,
-                        isCurrentUser = participant.user_id == currentUserId,
-                        splitType = expense.expense.split_type
+        // ─── Split Type Badge ─────────────────────────────────────────────
+        item {
+            Spacer(Modifier.height(4.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.End
+            ) {
+                Surface(
+                    shape = RoundedCornerShape(20.dp),
+                    color = MaterialTheme.colorScheme.secondaryContainer
+                ) {
+                    Text(
+                        text = if (expense.expense.split_type == "equal")
+                            "⚖️  Equal Split" else "✏️  Custom Split",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSecondaryContainer,
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
                     )
                 }
             }
-
-            // ─── Split Type Badge ─────────────────────────────────────────────
-            item {
-                Spacer(Modifier.height(4.dp))
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.End
-                ) {
-                    Surface(
-                        shape = RoundedCornerShape(20.dp),
-                        color = MaterialTheme.colorScheme.secondaryContainer
-                    ) {
-                        Text(
-                            text = if (expense.expense.split_type == "equal")
-                                "⚖️  Equal Split" else "✏️  Custom Split",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSecondaryContainer,
-                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
-                        )
-                    }
-                }
-            }
-
-            item { Spacer(Modifier.height(32.dp)) }
         }
+
+        item { Spacer(Modifier.height(32.dp)) }
     }
 }
 
@@ -174,7 +157,7 @@ private fun ExpenseSummaryCard(
             Surface(
                 shape = RoundedCornerShape(10.dp),
                 color = if (youPaid)
-                    MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
+                    MaterialTheme.colorScheme.secondary.copy(alpha = 0.15f)
                 else
                     MaterialTheme.colorScheme.error.copy(alpha = 0.12f)
             ) {
@@ -186,7 +169,7 @@ private fun ExpenseSummaryCard(
                     style = MaterialTheme.typography.bodySmall,
                     fontWeight = FontWeight.Medium,
                     color = if (youPaid)
-                        MaterialTheme.colorScheme.primary
+                        MaterialTheme.colorScheme.secondary
                     else
                         MaterialTheme.colorScheme.error,
                     modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)

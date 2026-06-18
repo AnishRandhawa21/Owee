@@ -10,6 +10,7 @@ import com.owee.app.data.remote.model.User
 import com.owee.app.data.repository.FriendRepository
 import io.github.jan.supabase.realtime.PostgresAction
 import io.github.jan.supabase.realtime.decodeRecord
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -23,6 +24,7 @@ class FriendsViewModel(
 ) : ViewModel() {
 
     private var currentUserId: String? = null
+    private var searchJob: Job? = null
 
     private val _uiState = MutableStateFlow(FriendsUiState())
     val uiState: StateFlow<FriendsUiState> = _uiState.asStateFlow()
@@ -37,6 +39,7 @@ class FriendsViewModel(
     }
 
     fun searchUsers(query: String) {
+        searchJob?.cancel()
         _uiState.update { it.copy(searchQuery = query) }
 
         if (query.isBlank()) {
@@ -44,7 +47,7 @@ class FriendsViewModel(
             return
         }
 
-        viewModelScope.launch {
+        searchJob = viewModelScope.launch {
             _uiState.update { it.copy(isLoading = true) }
             val results = repository.searchUsers(query)
             _uiState.update { it.copy(

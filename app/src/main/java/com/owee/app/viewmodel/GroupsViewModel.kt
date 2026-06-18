@@ -62,6 +62,10 @@ class GroupsViewModel(
         _uiState.update { it.copy(groupNameInput = name) }
     }
 
+    fun onSearchQueryChanged(query: String) {
+        _uiState.update { it.copy(searchQuery = query) }
+    }
+
     fun onFriendSelectionToggled(friendId: String) {
         _uiState.update { state ->
             val updated = state.selectedFriends.toMutableSet()

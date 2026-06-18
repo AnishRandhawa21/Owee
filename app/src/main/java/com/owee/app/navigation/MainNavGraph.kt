@@ -4,27 +4,37 @@ import androidx.navigation.NavGraphBuilder
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.navigation
-import com.owee.app.ui.screens.*
-import com.owee.app.viewmodel.AuthViewModel
-import com.owee.app.viewmodel.ExpensesViewModel
-import com.owee.app.viewmodel.FriendsViewModel
-import com.owee.app.viewmodel.GroupsViewModel
+import com.owee.app.ui.screens.home.HomeScreen
+import com.owee.app.ui.screens.people.PeopleScreen
+import com.owee.app.ui.screens.groups.GroupsScreen
+import com.owee.app.ui.screens.groups.CreateGroupScreen
+import com.owee.app.ui.screens.groups.GroupDetailsScreen
+import com.owee.app.ui.screens.settlement.SettlementScreen
+import com.owee.app.ui.screens.expenses.CreateExpenseScreen
+import com.owee.app.ui.screens.expenses.ExpenseDetailsScreen
+import com.owee.app.ui.screens.profile.ProfileScreen
+import com.owee.app.viewmodel.*
 
 fun NavGraphBuilder.mainNavGraph(
     navController: NavHostController,
     authViewModel: AuthViewModel,
     friendsViewModel: FriendsViewModel,
     groupsViewModel: GroupsViewModel,
-    expensesViewModel: ExpensesViewModel
+    expensesViewModel: ExpensesViewModel,
+    balanceViewModel: BalanceViewModel
 ) {
     composable(Routes.Home.route) {
-        HomeScreen()
+        HomeScreen(
+            authViewModel = authViewModel,
+            balanceViewModel = balanceViewModel
+        )
     }
 
     composable(Routes.People.route) {
         PeopleScreen(
             authViewModel = authViewModel,
-            friendsViewModel = friendsViewModel
+            friendsViewModel = friendsViewModel,
+            balanceViewModel = balanceViewModel
         )
     }
 
@@ -37,6 +47,7 @@ fun NavGraphBuilder.mainNavGraph(
             GroupsScreen(
                 authViewModel = authViewModel,
                 groupsViewModel = groupsViewModel,
+                balanceViewModel = balanceViewModel,
                 onNavigateToCreate = {
                     navController.navigate(Routes.CreateGroup.route)
                 },
@@ -63,12 +74,16 @@ fun NavGraphBuilder.mainNavGraph(
                 currentUserId = currentUserId,
                 groupsViewModel = groupsViewModel,
                 expensesViewModel = expensesViewModel,
+                balanceViewModel = balanceViewModel,
                 onNavigateBack = { navController.popBackStack() },
                 onNavigateToCreateExpense = {
                     navController.navigate(Routes.CreateExpense.route)
                 },
                 onNavigateToExpenseDetails = {
                     navController.navigate(Routes.ExpenseDetails.route)
+                },
+                onNavigateToSettlement = {
+                    navController.navigate(Routes.Settlement.route)
                 }
             )
         }
@@ -94,6 +109,15 @@ fun NavGraphBuilder.mainNavGraph(
             ExpenseDetailsScreen(
                 currentUserId = currentUserId,
                 expensesViewModel = expensesViewModel,
+                onNavigateBack = { navController.popBackStack() }
+            )
+        }
+
+        composable(Routes.Settlement.route) {
+            val groupId = groupsViewModel.uiState.value.selectedGroup?.group?.id ?: return@composable
+            SettlementScreen(
+                groupId = groupId,
+                balanceViewModel = balanceViewModel,
                 onNavigateBack = { navController.popBackStack() }
             )
         }

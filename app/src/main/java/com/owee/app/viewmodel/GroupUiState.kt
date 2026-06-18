@@ -10,6 +10,7 @@ data class GroupUiState(
     val friends: List<User> = emptyList(),
     val selectedFriends: Set<String> = emptySet(),
     val groupNameInput: String = "",
+    val searchQuery: String = "",
     val isLoading: Boolean = false,
     val isCreating: Boolean = false,
     val error: String? = null,

@@ -1,4 +1,4 @@
-package com.owee.app.ui.screens
+package com.owee.app.ui.screens.profile
 
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape

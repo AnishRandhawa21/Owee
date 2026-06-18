@@ -1,4 +1,4 @@
-package com.owee.app.ui.screens
+package com.owee.app.ui.screens.groups
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -8,8 +8,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -20,23 +18,26 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.owee.app.data.remote.model.ExpenseWithParticipants
-import com.owee.app.data.remote.model.MemberBalance
 import com.owee.app.data.remote.model.User
+import com.owee.app.domain.model.UserBalance
+import com.owee.app.viewmodel.BalanceViewModel
 import com.owee.app.viewmodel.ExpensesViewModel
 import com.owee.app.viewmodel.GroupsViewModel
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun GroupDetailsScreen(
     currentUserId: String,
     groupsViewModel: GroupsViewModel,
     expensesViewModel: ExpensesViewModel,
+    balanceViewModel: BalanceViewModel,
     onNavigateBack: () -> Unit,
     onNavigateToCreateExpense: () -> Unit,
-    onNavigateToExpenseDetails: () -> Unit
+    onNavigateToExpenseDetails: () -> Unit,
+    onNavigateToSettlement: () -> Unit
 ) {
     val groupState by groupsViewModel.uiState.collectAsState()
     val expenseState by expensesViewModel.uiState.collectAsState()
+    val balanceState by balanceViewModel.uiState.collectAsState()
 
     val group = groupState.selectedGroup
 
@@ -45,7 +46,9 @@ fun GroupDetailsScreen(
         return
     }
 
-    // Initialize expenses when screen opens
+    val groupBalance = balanceState.overallBalance?.groupBalances?.find { it.groupId == group.group.id }
+
+    // Initialize expenses and balances when screen opens
     LaunchedEffect(group.group.id) {
         group.group.id?.let { groupId ->
             expensesViewModel.initialize(
@@ -53,146 +56,110 @@ fun GroupDetailsScreen(
                 currentUserId = currentUserId,
                 members = group.members
             )
+            balanceViewModel.initialize(currentUserId)
         }
     }
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = {
-                    Text(
-                        text = group.group.name,
-                        fontWeight = FontWeight.SemiBold,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                },
-                navigationIcon = {
-                    IconButton(onClick = {
-                        groupsViewModel.clearSelectedGroup()
-                        onNavigateBack()
-                    }) {
-                        Icon(Icons.Default.ArrowBack, contentDescription = "Back")
-                    }
-                }
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+
+        // ─── Group Summary ────────────────────────────────────────────────
+        item {
+            GroupSummaryCard(
+                groupName = group.group.name,
+                memberCount = group.memberCount,
+                totalExpenses = groupBalance?.totalExpenses ?: 0.0
             )
-        },
-        floatingActionButton = {
-            FloatingActionButton(
-                onClick = onNavigateToCreateExpense,
-                containerColor = MaterialTheme.colorScheme.primary
-            ) {
-                Icon(
-                    Icons.Default.Add,
-                    contentDescription = "Add Expense",
-                    tint = MaterialTheme.colorScheme.onPrimary
+        }
+
+        // ─── Balances Section ─────────────────────────────────────────────
+        item {
+            Text(
+                text = "Balances",
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.padding(vertical = 4.dp)
+            )
+        }
+
+        if (expenseState.isLoading) {
+            item {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(24.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    CircularProgressIndicator(modifier = Modifier.size(24.dp))
+                }
+            }
+        } else if (groupBalance == null || groupBalance.balances.isEmpty()) {
+            item { BalancesEmptyState() }
+        } else {
+            items(groupBalance.balances, key = { "balance_${it.userId}" }) { balance ->
+                BalanceRow(
+                    balance = balance,
+                    isCurrentUser = balance.userId == currentUserId
                 )
             }
         }
-    ) { padding ->
 
-        LazyColumn(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding),
-            contentPadding = PaddingValues(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
+        // ─── Expenses Section ─────────────────────────────────────────────
+        item {
+            Spacer(Modifier.height(4.dp))
+            Text(
+                text = "Expenses",
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.padding(vertical = 4.dp)
+            )
+        }
 
-            // ─── Group Summary ────────────────────────────────────────────────
-            item {
-                GroupSummaryCard(
-                    groupName = group.group.name,
-                    memberCount = group.memberCount
-                )
-            }
-
-            // ─── Balances Section ─────────────────────────────────────────────
-            item {
-                Text(
-                    text = "Balances",
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.SemiBold,
-                    modifier = Modifier.padding(vertical = 4.dp)
-                )
-            }
-
-            if (expenseState.isLoading) {
-                item {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(24.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        CircularProgressIndicator(modifier = Modifier.size(24.dp))
+        if (!expenseState.isLoading && expenseState.expenses.isEmpty()) {
+            item { ExpensesEmptyState() }
+        } else {
+            items(
+                expenseState.expenses,
+                key = { "expense_${it.expense.id}" }
+            ) { expenseWithParticipants ->
+                ExpenseRow(
+                    expenseWithParticipants = expenseWithParticipants,
+                    currentUserId = currentUserId,
+                    onClick = {
+                        expensesViewModel.selectExpense(expenseWithParticipants)
+                        onNavigateToExpenseDetails()
                     }
-                }
-            } else if (expenseState.memberBalances.isEmpty()) {
-                item { BalancesEmptyState() }
-            } else {
-                items(expenseState.memberBalances, key = { "balance_${it.user.id}" }) { balance ->
-                    BalanceRow(
-                        balance = balance,
-                        isCurrentUser = balance.user.id == currentUserId
-                    )
-                }
-            }
-
-            // ─── Expenses Section ─────────────────────────────────────────────
-            item {
-                Spacer(Modifier.height(4.dp))
-                Text(
-                    text = "Expenses",
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.SemiBold,
-                    modifier = Modifier.padding(vertical = 4.dp)
                 )
             }
-
-            if (!expenseState.isLoading && expenseState.expenses.isEmpty()) {
-                item { ExpensesEmptyState() }
-            } else {
-                items(
-                    expenseState.expenses,
-                    key = { "expense_${it.expense.id}" }
-                ) { expenseWithParticipants ->
-                    ExpenseRow(
-                        expenseWithParticipants = expenseWithParticipants,
-                        currentUserId = currentUserId,
-                        onClick = {
-                            expensesViewModel.selectExpense(expenseWithParticipants)
-                            onNavigateToExpenseDetails()
-                        }
-                    )
-                }
-            }
-
-            // ─── Members Section ──────────────────────────────────────────────
-            item {
-                Spacer(Modifier.height(4.dp))
-                Text(
-                    text = "Members",
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.SemiBold,
-                    modifier = Modifier.padding(vertical = 4.dp)
-                )
-            }
-
-            items(group.members, key = { "member_${it.id}" }) { member ->
-                val role = if (member.id == group.group.created_by) "owner" else "member"
-                MemberRow(user = member, role = role)
-            }
-
-            item { Spacer(Modifier.height(80.dp)) }
         }
+
+        // ─── Members Section ──────────────────────────────────────────────
+        item {
+            Spacer(Modifier.height(4.dp))
+            Text(
+                text = "Members",
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.padding(vertical = 4.dp)
+            )
+        }
+
+        items(group.members, key = { "member_${it.id}" }) { member ->
+            val role = if (member.id == group.group.created_by) "owner" else "member"
+            MemberRow(user = member, role = role)
+        }
+
+        item { Spacer(Modifier.height(80.dp)) }
     }
 }
 
 // ─── Group Summary Card ───────────────────────────────────────────────────────
 
 @Composable
-private fun GroupSummaryCard(groupName: String, memberCount: Int) {
+private fun GroupSummaryCard(groupName: String, memberCount: Int, totalExpenses: Double) {
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(16.dp),
@@ -208,11 +175,22 @@ private fun GroupSummaryCard(groupName: String, memberCount: Int) {
                 color = MaterialTheme.colorScheme.onPrimaryContainer
             )
             Spacer(Modifier.height(4.dp))
-            Text(
-                text = "$memberCount Members",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f)
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text(
+                    text = "$memberCount Members",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f)
+                )
+                Text(
+                    text = "Total: ₹${"%.2f".format(totalExpenses)}",
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onPrimaryContainer
+                )
+            }
         }
     }
 }
@@ -220,9 +198,9 @@ private fun GroupSummaryCard(groupName: String, memberCount: Int) {
 // ─── Balance Row ──────────────────────────────────────────────────────────────
 
 @Composable
-private fun BalanceRow(balance: MemberBalance, isCurrentUser: Boolean) {
-    val isPositive = balance.netBalance > 0.01
-    val isNegative = balance.netBalance < -0.01
+private fun BalanceRow(balance: UserBalance, isCurrentUser: Boolean) {
+    val isPositive = balance.amount > 0.01
+    val isNegative = balance.amount < -0.01
     val isSettled = !isPositive && !isNegative
 
     Row(
@@ -255,7 +233,7 @@ private fun BalanceRow(balance: MemberBalance, isCurrentUser: Boolean) {
         Column(modifier = Modifier.weight(1f)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
-                    text = balance.user.name,
+                    text = balance.userName,
                     style = MaterialTheme.typography.bodyMedium,
                     fontWeight = FontWeight.Medium
                 )
@@ -276,13 +254,13 @@ private fun BalanceRow(balance: MemberBalance, isCurrentUser: Boolean) {
             }
             Text(
                 text = when {
-                    isPositive -> "gets back ₹${"%.2f".format(balance.netBalance)}"
-                    isNegative -> "owes ₹${"%.2f".format(-balance.netBalance)}"
+                    isPositive -> "gets back ₹${"%.2f".format(balance.amount)}"
+                    isNegative -> "owes ₹${"%.2f".format(-balance.amount)}"
                     else -> "settled up"
                 },
                 style = MaterialTheme.typography.bodySmall,
                 color = when {
-                    isPositive -> MaterialTheme.colorScheme.primary
+                    isPositive -> MaterialTheme.colorScheme.secondary
                     isNegative -> MaterialTheme.colorScheme.error
                     else -> MaterialTheme.colorScheme.onSurfaceVariant
                 }
@@ -293,13 +271,13 @@ private fun BalanceRow(balance: MemberBalance, isCurrentUser: Boolean) {
         Text(
             text = when {
                 isSettled -> "✓"
-                isPositive -> "+₹${"%.2f".format(balance.netBalance)}"
-                else -> "-₹${"%.2f".format(-balance.netBalance)}"
+                isPositive -> "+₹${"%.2f".format(balance.amount)}"
+                else -> "-₹${"%.2f".format(-balance.amount)}"
             },
             style = MaterialTheme.typography.bodyMedium,
             fontWeight = FontWeight.Bold,
             color = when {
-                isPositive -> MaterialTheme.colorScheme.primary
+                isPositive -> MaterialTheme.colorScheme.secondary
                 isNegative -> MaterialTheme.colorScheme.error
                 else -> MaterialTheme.colorScheme.onSurfaceVariant
             }
@@ -375,7 +353,7 @@ private fun ExpenseRow(
                         "you owe ₹${"%.2f".format(yourShare)}",
                     style = MaterialTheme.typography.labelSmall,
                     color = if (paidByYou)
-                        MaterialTheme.colorScheme.primary
+                        MaterialTheme.colorScheme.secondary
                     else
                         MaterialTheme.colorScheme.error
                 )
