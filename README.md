@@ -134,11 +134,20 @@ Calculated values such as **balances, totals, and settlement plans are never syn
 
 ## 📸 Screenshots
 
-<img width="572" height="1280" alt="2" src="https://github.com/user-attachments/assets/e24603c0-fb91-4bef-add6-6eb862a8c19a" />
-<img width="572" height="1280" alt="1" src="https://github.com/user-attachments/assets/bc1c8711-8d6b-4f4b-a1de-4a4da92cc44d" />
-<img width="572" height="1280" alt="7" src="https://github.com/user-attachments/assets/b566582b-eaa6-4275-af9d-c4cad64060c7" />
-<img width="572" height="1280" alt="6" src="https://github.com/user-attachments/assets/c2ce95bc-59aa-47e5-b427-22c0ad82bd16" />
-<img width="572" height="1280" alt="3" src="https://github.com/user-attachments/assets/fa597c45-8131-490a-82f0-56382801cfb7" />
+## 📸 Screenshots
+
+<table>
+  <tr>
+    <td><img src="https://github.com/user-attachments/assets/e24603c0-fb91-4bef-add6-6eb862a8c19a" width="220"/></td>
+    <td><img src="https://github.com/user-attachments/assets/bc1c8711-8d6b-4f4b-a1de-4a4da92cc44d" width="220"/></td>
+    <td><img src="https://github.com/user-attachments/assets/b566582b-eaa6-4275-af9d-c4cad64060c7" width="220"/></td>
+  </tr>
+  <tr>
+    <td><img src="https://github.com/user-attachments/assets/c2ce95bc-59aa-47e5-b427-22c0ad82bd16" width="220"/></td>
+    <td><img src="https://github.com/user-attachments/assets/fa597c45-8131-490a-82f0-56382801cfb7" width="220"/></td>
+  </tr>
+</table>
+
 
 
 ---
